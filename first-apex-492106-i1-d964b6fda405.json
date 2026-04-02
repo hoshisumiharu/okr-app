@@ -1,0 +1,13 @@
+{
+  "type": "service_account",
+  "project_id": "first-apex-492106-i1",
+  "private_key_id": "d964b6fda405a5d8523298df546a07e05bb50d9a",
+  "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQDU6eD/9CK85z3S\nDQvb7pB/ZA+h5MPCqTPtAKQohB1kXMo63Kjq8nrg1HG5boLWDPDXOON9gSqdyWot\nD+oWueWXAQULnLFhmsvc2RMbIOq1om63w01+h5A1KzpRE6ljit2LS1LUkEMlC3IB\nLf/kHSORJPrAKHnEy8D6UbWxTv5c+1KvGlEHykC5EP+83K6DPactO+WlG1ZMn0dl\n0kNh7hPnbDf4ZZwfrv0wrvGSip2fkyszG39jXxKz3KAl9Nv/Kdv+FkTpO4uAJc+K\nk2yXpMp/Hb81SCfMs+T5FLEAUYuy1/mRqEyCt6J7//SDVWSkYbJ0q5+T3wU988MU\nROEBaedjAgMBAAECggEAX7M+XJ3OLW2dJniRv4n0LiZ6NlEewrUOL3XN055Knc1t\nYtbDIFPccolbEre/HFpVuM+LxWJVFvYtANM563wkW+Lr8yO7wTz0bDCwO03o4bqA\nnJ2vC/QAGD31aPL2/NSyrwUs1nl/jLufwzL7ZXvJfFiMUun+jbvt4jXu/qMchwro\nR6RTvEPQswpualaqgCv4NubKl4wEbkZqSyqSLxjmYz53rUphE8FGc8UbnTTAhbbb\ntaeZibybKWGj4wloaPpzfEiw9HVHl+2Ti2K4VWvVpKMHuX8vdI2Hvm9TWwxDrew5\nE+Jv6a1WWR3/oXQbAftzCXuYs2PjiGd9ciaEckm3/QKBgQDxlc8zaIxTuacG1ytS\np98+Ejt9zSQVrJcaxbUdfiVrdsTPjJQvwURIzI4K4jyCZBiagDjKNXGvtBqjY3B7\nSpeK2v7VQy0RIWt4qZu+ihiJKF90pYh5EUyLUX7lj57dMHSwFCrAuBqQZbKkipzD\nvn1cDQqQqG9n6PCBPAf36Lk77wKBgQDhnh0Q3jIB0AuaRvgUPFVJWxx69bHtuncj\nYMh6V6u0q7COKWVsZwRwA5S/Dq479OeEvZS0YIAVP+4W18EL55Kn+8ClgbPEKdp+\nkY0xhpVJ1qBtd3SNv+R5J1JXSMb1fdkQnCruhMveY0eBRwd0teG4tTQfFqPVADO6\nzU9Z1MSnzQKBgBNBxcprQwRJgC7jZ+imyPzBp0xX1dCEeWcA63b2XzU5umZw5j8I\nQNEsvQXREtGx+OQX5G75454F1TnA625oe7vtyPJm8Gi1KUPtASUnDN2iAjniGAbO\ngjN4w4y47gjjm+mNMfs6saNg9+R1yBkyTfvQbk8pnffCcalbh6cTPfCxAoGBAIYa\nXxhpmbuuF1dqG4abne3uM+16IHo3PR1QJ5lghvTqoBS/0kMusFqMJluxtCp7FSm3\nLa5RNZBr4W6+a0ZSLL+gSg+WGm3cmrxkc1Ietpme8theCm8+weSpVK4A2hGM7fqL\neJExaaQTyqqyt2HNwg7x1bssz9CJQDYmVqYEa6d5AoGAeRRZhi3v3VVNNv3K3kED\nqBFgx2LuBOuz2Xj841VHTCcewjBAPpuosbEdiQZGc6PVvHEqVg9rdFdVDcSr2z5x\nIRad5LMgVEb71aZWqXMsbemfxq7TYIox8qpEnai9t36FwJcleZhJJLxNjsnUMRFC\ngBYuCGkNlExpHEDSSlsTVek=\n-----END PRIVATE KEY-----\n",
+  "client_email": "oke-app@first-apex-492106-i1.iam.gserviceaccount.com",
+  "client_id": "108577856111861688028",
+  "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+  "token_uri": "https://oauth2.googleapis.com/token",
+  "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+  "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/oke-app%40first-apex-492106-i1.iam.gserviceaccount.com",
+  "universe_domain": "googleapis.com"
+}
