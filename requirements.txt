@@ -1,0 +1,7 @@
+streamlit
+pandas
+plotly
+python-pptx
+kaleido
+gspread
+google-auth
