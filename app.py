@@ -1,4 +1,4 @@
-"""
+
 OKR × 業務計画 統合管理アプリ  ─  app.py （ローカル保存版）
 =============================================================
 S3の代わりにローカルフォルダ（data/）にJSONを保存します。
@@ -471,8 +471,8 @@ def render_strategy(master: dict):
     if not st.session_state.admin_auth:
         st.markdown("### 🔐 管理者モードの認証")
         st.markdown('<div class="g-info"><b>このタブはチームの四半期OKRを確定する専用画面です。</b><br>全員で画面を共有しながら入力し、合意の上で「確定保存」してください。</div>', unsafe_allow_html=True)
-        with st.form("admin_auth"):
-            pin = st.text_input("管理者PINコードを入力", type="password")
+        with st.form("admin_login_form"):
+            pin = st.text_input("管理者PINコードを入力", type="password", key="admin_pin_input")
             if st.form_submit_button("認証する", use_container_width=True):
                 if pin == CFG["admin_pin"] or not pin:
                     st.session_state.admin_auth = True
