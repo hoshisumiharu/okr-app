@@ -1071,8 +1071,6 @@ def main():
     with st.sidebar:
         st.markdown(f"## 🌟 OKR管理\n**{team_name}**")
         st.markdown("---")
-        st.markdown('<div class="local-badge">💾 ローカル保存モード</div>', unsafe_allow_html=True)
-
         st.markdown("### 📌 あなたの名前")
         selected = st.selectbox("名前", MEMBERS,
             index=MEMBERS.index(st.session_state.cur_member) if st.session_state.cur_member in MEMBERS else 0,
