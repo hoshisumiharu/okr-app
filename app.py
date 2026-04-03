@@ -545,6 +545,12 @@ def render_home():
 **構成：** 表紙 → チームOKRサマリー → メンバー別詳細 → 統合ガントチャート
 """)
 
+    data_path = BASE_DIR.resolve()
+    st.markdown("---")
+    st.markdown("### 📁 データの保存場所")
+    st.markdown(f'<div class="local-badge">💾 保存先：<code>{data_path}</code></div>', unsafe_allow_html=True)
+    st.markdown('<div class="g-info"><b>複数人で共有する場合</b>　<code>data</code>フォルダをOneDriveや社内共有フォルダに移動し、<code>secrets.toml</code>の<code>data_dir</code>にそのパスを指定してください。<br>例）<code>data_dir = "C:/Users/Shared/okr_data"</code></div>', unsafe_allow_html=True)
+
     st.markdown("---")
     st.markdown("### 月次の運用サイクル")
     cols = st.columns(4)
@@ -1341,6 +1347,11 @@ def main():
     month_str  = st.session_state.month_str
     month_disp = datetime.date.fromisoformat(month_str+"-01").strftime("%Y年%m月")
     master     = io_get_master()
+
+    with st.sidebar:
+        st.markdown(f"## 🌟 OKR管理\n**{team_name}**")
+        st.markdown("---")
+        st.markdown('<div class="local-badge">💾 ローカル保存モード</div>', unsafe_allow_html=True)
 
         st.markdown("### 📌 あなたの名前")
         selected = st.selectbox("名前", MEMBERS,
