@@ -978,48 +978,69 @@ def render_plan(master: dict):
                     )
                     if io_save_plan(month_str, member, payload):
                         st.toast(f"✅ {member} さんのプランを保存しました！", icon="🎉")
-                        st.success("保存完了！続けてBacklogにチケットを起票できます。")
-                        # ── Backlog起票 ──────────────────────────────────────
-                        st.markdown("#### 📋 Backlogへ起票する")
-                        st.markdown('<div class="g-info">① テキストをコピーしてBacklogを開く → ② タイトルと説明に貼り付けて登録してください。</div>', unsafe_allow_html=True)
-                        import urllib.parse
-                        for kr_ in krs:
-                            kd_ = draft.get(kr_["id"], {})
-                            for iss_ in kd_.get("issues", []):
-                                if not iss_.get("text","").strip():
+                        st.session_state["show_backlog_dialog"] = True
+                        st.session_state["backlog_krs"]    = krs
+                        st.session_state["backlog_draft"]  = draft
+                        st.session_state["backlog_member"] = member
+                        st.session_state["backlog_draft_key"] = draft_key
+                        st.rerun()
+
+            # ── Backlog起票ダイアログ ─────────────────────────────────────
+            if st.session_state.get("show_backlog_dialog"):
+
+                @st.dialog("📋 Backlogへ起票する", width="large")
+                def backlog_dialog():
+                    import urllib.parse
+                    st.markdown('<div class="g-info">① コピーボタンでテキストをコピー → ② Backlogを開いて貼り付けて登録してください。</div>', unsafe_allow_html=True)
+
+                    _krs    = st.session_state.get("backlog_krs", [])
+                    _draft  = st.session_state.get("backlog_draft", {})
+                    _member = st.session_state.get("backlog_member", "")
+                    backlog_url = "https://kyuden-ict.backlog.com/add/MIMAMORIOPS"
+
+                    for kr_ in _krs:
+                        kd_ = _draft.get(kr_["id"], {})
+                        for iss_ in kd_.get("issues", []):
+                            if not iss_.get("text","").strip():
+                                continue
+                            for a_ in iss_.get("actions", []):
+                                if not a_.get("text","").strip():
                                     continue
-                                for a_ in iss_.get("actions", []):
-                                    if not a_.get("text","").strip():
-                                        continue
-                                    summary = a_["text"]
-                                    desc = (
-                                        f"【KR】{kr_['label']}：{kr_['text']}\n"
-                                        f"【壁・課題】{iss_['text']}\n"
-                                        f"【期間】{a_.get('start','')} → {a_.get('end','')}\n"
-                                        f"【担当】{member}"
+                                summary = a_["text"]
+                                desc = (
+                                    f"【KR】{kr_['label']}：{kr_['text']}\n"
+                                    f"【壁・課題】{iss_['text']}\n"
+                                    f"【期間】{a_.get('start','')} → {a_.get('end','')}\n"
+                                    f"【担当】{_member}"
+                                )
+                                with st.container(border=True):
+                                    st.markdown(
+                                        f'<div style="font-size:.85rem;font-weight:600;'
+                                        f'color:var(--color-text-primary);margin-bottom:.5rem;">'
+                                        f'⚡ {a_["text"][:50]}{"..." if len(a_["text"])>50 else ""}'
+                                        f'</div>',
+                                        unsafe_allow_html=True,
                                     )
-                                    backlog_url = "https://kyuden-ict.backlog.com/add/MIMAMORIOPS"
-                                    with st.container(border=True):
-                                        st.markdown(
-                                            f'<div style="font-size:.8rem;font-weight:600;'
-                                            f'color:var(--color-text-primary);margin-bottom:.4rem;">'
-                                            f'⚡ {a_["text"][:40]}{"..." if len(a_["text"])>40 else ""}'
-                                            f'</div>',
-                                            unsafe_allow_html=True,
-                                        )
-                                        st.markdown("**件名（コピーしてBacklogに貼り付け）**")
-                                        st.code(summary, language=None)
-                                        st.markdown("**説明（コピーしてBacklogに貼り付け）**")
-                                        st.code(desc, language=None)
-                                        st.link_button(
-                                            "🔗 Backlogで新規チケットを開く",
-                                            backlog_url,
-                                            use_container_width=True,
-                                        )
-                        st.markdown("---")
-                        if st.button("✅ 起票完了・入力画面に戻る", use_container_width=True):
-                            del st.session_state[draft_key]
-                            st.session_state.plan_step = 0; st.rerun()
+                                    st.markdown("**件名**")
+                                    st.code(summary, language=None)
+                                    st.markdown("**説明**")
+                                    st.code(desc, language=None)
+                                    st.link_button(
+                                        "🔗 Backlogで新規チケットを開く",
+                                        backlog_url,
+                                        use_container_width=True,
+                                    )
+
+                    st.markdown("---")
+                    if st.button("✅ 起票完了・入力画面に戻る", type="primary", use_container_width=True):
+                        st.session_state["show_backlog_dialog"] = False
+                        _dk = st.session_state.get("backlog_draft_key")
+                        if _dk and _dk in st.session_state:
+                            del st.session_state[_dk]
+                        st.session_state.plan_step = 0
+                        st.rerun()
+
+                backlog_dialog()
 
         with col_tree:
             render_logic_tree(master, kr_idx, issues, pal)
