@@ -281,17 +281,21 @@ def blank_action() -> dict:
             "end": (today + datetime.timedelta(days=30)).isoformat()}
 
 
+def blank_issue() -> dict:
+    """空の壁（課題）を1件返す。アクションを1件含む。"""
+    return {"text": "", "actions": [blank_action()]}
+
+
 def _init_session():
     today = datetime.date.today()
     for k, v in dict(
-        cur_member   = MEMBERS[0],
-        month_str    = today.strftime("%Y-%m"),
-        plan_step    = 0,
-        plan_kr_idx  = 0,
-        plan_issue   = "",
-        plan_actions = [blank_action()],
-        admin_auth   = False,
-        team_data    = None,
+        cur_member  = MEMBERS[0],
+        month_str   = today.strftime("%Y-%m"),
+        plan_step   = 0,
+        plan_kr_idx = 0,
+        plan_issues = [blank_issue()],   # [{text, actions:[{text,start,end}]}]
+        admin_auth  = False,
+        team_data   = None,
     ).items():
         if k not in st.session_state:
             st.session_state[k] = v
@@ -332,7 +336,7 @@ def render_north_star(master: dict):
 # ══════════════════════════════════════════════════════════════════════════════
 
 def render_progress(step: int):
-    steps = ["🎯 KRを選ぶ", "🔍 課題を見つける", "⚡ アクションを決める"]
+    steps = ["🎯 KRを選ぶ", "🔍 壁とアクションを決める"]
     parts = []
     for i, label in enumerate(steps):
         cls = "done" if i < step else ("active" if i == step else "todo")
@@ -346,32 +350,45 @@ def render_progress(step: int):
 # ロジックツリー
 # ══════════════════════════════════════════════════════════════════════════════
 
-def render_logic_tree(master: dict, kr_idx: int, issue: str,
-                      actions: list[dict], pal: dict):
-    krs    = master.get("key_results", [])
-    kr     = krs[kr_idx] if kr_idx < len(krs) else {}
-    issue_html = (
-        f'<div class="lt-body" style="font-weight:600;">{issue}</div>'
-        if issue.strip() else
-        '<div class="lt-body lt-empty">課題を入力すると表示されます</div>'
-    )
-    filled = [a for a in actions if a.get("text","").strip()]
-    if filled:
-        actions_html = "".join(
-            f'<div class="lt-indent" style="margin-top:.4rem;"><div class="lt-row">'
-            f'<div class="lt-ico" style="background:{pal["main"]};">A{i+1}</div>'
-            f'<div class="lt-body"><span style="font-weight:600;">{a["text"]}</span>'
-            f'<div class="lt-sub">{a.get("start","")} → {a.get("end","")}</div></div>'
-            f'</div></div>'
-            for i, a in enumerate(filled)
-        )
+def render_logic_tree(master: dict, kr_idx: int,
+                      issues: list[dict], pal: dict):
+    """issues = [{text, actions:[{text,start,end}]}]"""
+    krs = master.get("key_results", [])
+    kr  = krs[kr_idx] if kr_idx < len(krs) else {}
+
+    filled_issues = [iss for iss in issues if iss.get("text","").strip()]
+    if filled_issues:
+        issues_html = ""
+        for ii, iss in enumerate(filled_issues):
+            filled_actions = [a for a in iss.get("actions",[]) if a.get("text","").strip()]
+            actions_html = "".join(
+                f'<div class="lt-indent" style="margin-top:.3rem;">'
+                f'<div class="lt-row">'
+                f'<div class="lt-ico" style="background:{pal["main"]};">A{ia+1}</div>'
+                f'<div class="lt-body"><span style="font-weight:600;">{a["text"]}</span>'
+                f'<div class="lt-sub">{a.get("start","")} → {a.get("end","")}</div>'
+                f'</div></div></div>'
+                for ia, a in enumerate(filled_actions)
+            ) if filled_actions else (
+                f'<div class="lt-indent" style="margin-top:.3rem;">'
+                f'<div class="lt-row"><div class="lt-ico" style="background:{pal["main"]};">A</div>'
+                f'<div class="lt-body lt-empty">アクションを入力してください</div>'
+                f'</div></div>'
+            )
+            issues_html += (
+                f'<div class="lt-row" style="margin-top:.35rem;">'
+                f'<div class="lt-ico" style="background:#F39C12;">壁{ii+1}</div>'
+                f'<div class="lt-body" style="font-weight:600;">{iss["text"]}</div>'
+                f'</div>{actions_html}'
+            )
     else:
-        actions_html = (
-            f'<div class="lt-indent" style="margin-top:.4rem;"><div class="lt-row">'
-            f'<div class="lt-ico" style="background:{pal["main"]};">A</div>'
-            f'<div class="lt-body lt-empty">アクションを入力すると表示されます</div>'
-            f'</div></div>'
+        issues_html = (
+            '<div class="lt-row" style="margin-top:.35rem;">'
+            '<div class="lt-ico" style="background:#F39C12;">壁</div>'
+            '<div class="lt-body lt-empty">壁を入力すると表示されます</div>'
+            '</div>'
         )
+
     st.markdown(f"""
 <div class="ltree">
   <div class="ltree-hdr">🌲 ロジックツリー（リアルタイム）</div>
@@ -379,13 +396,7 @@ def render_logic_tree(master: dict, kr_idx: int, issue: str,
     <div class="lt-ico" style="background:#1B4F72;">KR</div>
     <div class="lt-body" style="font-weight:700;">{kr.get("label","KR")}：{kr.get("text","")}</div>
   </div>
-  <div class="lt-indent">
-    <div class="lt-row">
-      <div class="lt-ico" style="background:#F39C12;">課</div>
-      {issue_html}
-    </div>
-    {actions_html}
-  </div>
+  <div class="lt-indent">{issues_html}</div>
 </div>
 """, unsafe_allow_html=True)
 
@@ -422,7 +433,117 @@ def render_home():
   </div>
 </div>
 """, unsafe_allow_html=True)
-    st.markdown('<div class="g-info"><b>なぜこの順番？</b>　KR → 課題 → アクション の順に強制的に考えさせる設計。各KRにアクションを最大5件追加できます。</div>', unsafe_allow_html=True)
+    st.markdown('<div class="g-info"><b>なぜこの順番？</b>　KR → 壁（課題） → アクション の順に強制的に考えさせる設計。各KRに壁を最大3件、各壁にアクションを最大5件追加できます。</div>', unsafe_allow_html=True)
+
+    # ── 操作ガイドボタン ──────────────────────────────────────────────────
+    st.markdown("---")
+    st.markdown("### 📖 操作ガイド")
+    gc1, gc2 = st.columns(2)
+    with gc1:
+        with st.popover("👤 メンバー向けガイドを見る", use_container_width=True):
+            st.markdown("## 👤 メンバー向け 操作ガイド")
+            st.markdown("---")
+            st.markdown("### 1. アクセス方法")
+            st.markdown("ブラウザでアプリのURLを開くだけです。インストール不要。左のサイドバーで **自分の名前** を必ず選んでください。")
+            st.warning("⚠️ 名前を間違えると他の人のデータを上書きしてしまいます。")
+
+            st.markdown("---")
+            st.markdown("### 2. 月次計画の入力（PLANタブ）")
+            st.markdown("「📝 PLAN」タブを開き、2ステップで入力します。")
+
+            st.markdown("#### STEP 1：KRを選ぶ")
+            st.markdown("今月最も重要なKRを1つ選んで「選ぶ」ボタンを押してください。")
+
+            st.markdown("#### STEP 2：壁とアクションを決める")
+            st.markdown("""
+**壁（課題）を入力する**
+「なぜこのKRに今届いていないのか？」の原因を1文で書いてください。
+""")
+            st.markdown('<div class="g-ok">✅ 「インタビューがゼロのため施策が推測止まりになっている」</div>', unsafe_allow_html=True)
+            st.markdown('<div class="g-ng">❌ 「NPSが低い」← 現象ではなく原因を書く</div>', unsafe_allow_html=True)
+
+            st.markdown("""
+**アクションを入力する**
+各壁の下に「いつまでに・何を・どれだけ」を含む行動を入力してください。
+""")
+            st.markdown('<div class="g-ok">✅ 「6/15までにインタビュー10件実施しSlackで共有する」</div>', unsafe_allow_html=True)
+            st.markdown('<div class="g-ng">❌ 「顧客の声を聞く」← いつ？何件？</div>', unsafe_allow_html=True)
+
+            st.markdown("""
+**壁・アクションの追加・削除**
+- 「＋ 壁（課題）を追加する」で壁を最大3件まで追加できます
+- 「＋ アクションを追加」で各壁に最大5件のアクションを追加できます
+- 🗑 ボタンで不要な壁・アクションを削除できます
+""")
+            st.markdown("入力が終わったら「💾 保存する」を押してください。")
+
+            st.markdown("---")
+            st.markdown("### 3. 複数のKRに入力したい場合")
+            st.markdown("「別のKRも入力する」ボタンでKR選択画面に戻ります。入力済みのデータは保持されます。")
+
+            st.markdown("---")
+            st.markdown("### 4. よくある質問")
+            st.markdown("""
+**Q. 保存前にブラウザを閉じてしまったら？**
+入力内容は消えます。こまめに「💾 保存する」を押しましょう。
+
+**Q. 入力を修正したい**
+再度PLANタブを開くと前回のデータが読み込まれます。修正して保存すると上書きされます。
+
+**Q. 入力期限は？**
+毎月1〜3日を目安に入力してください。
+""")
+
+    with gc2:
+        with st.popover("👔 マネジャー向けガイドを見る", use_container_width=True):
+            st.markdown("## 👔 マネジャー向け 操作ガイド")
+            st.markdown("---")
+            st.markdown("### 1. 月次運用カレンダー")
+            st.markdown("""
+| タイミング | 作業 | 使う機能 |
+|-----------|------|---------|
+| 四半期初め | OKRを確定する | STRATEGYタブ |
+| 月初 1〜3日 | メンバーの入力を促す | （メンバーがPLANタブで入力） |
+| 月初 MTG当日 | 全員の計画を確認 | DASHBOARDタブ |
+| 月初 MTG当日 | PPTX資料を生成 | DASHBOARDタブ → PPTX出力 |
+| 月末 | 振り返りを実施 | DASHBOARDタブ |
+""")
+            st.markdown("---")
+            st.markdown("### 2. 四半期OKRの設定（STRATEGYタブ）")
+            st.markdown("""
+1. 「🏛️ STRATEGY」タブを開き、管理者PINを入力して認証
+2. **Objective**：チームがワクワクする定性的な目標を入力（右側のチェックリストが全✅になるのが理想）
+3. **Key Results**：月末に○か✕か判定できる数値指標を3つ入力（70〜80%達成が理想的な難易度）
+4. 「🔒 OKRを確定保存する」を押すとロック → 北極星バナーに反映
+""")
+            st.warning("⚠️ 確定後は四半期中は編集不可。変更は「ロック解除」ボタン＋チーム全員の合意が必要です。")
+
+            st.markdown("---")
+            st.markdown("### 3. ダッシュボードの活用（DASHBOARDタブ）")
+            st.markdown("""
+- 「🔄 データを読み込む」で全員の最新データを取得
+- 提出状況カードで未提出メンバーを確認
+- 「マネジャー向け レビューの着眼点」を展開してフィードバック観点を確認
+""")
+            st.markdown("**フィードバックの5観点**")
+            st.markdown("""
+| 観点 | チェックポイント |
+|-----|----------------|
+| 🔥 野心度 | KRは70〜80%達成が理想の難易度か？ |
+| 🔗 ロジック | 壁→アクションの因果関係は通っているか？ |
+| ⚡ リソース | 全アクション合計で1ヶ月に現実的な量か？ |
+| 🤝 連携 | 他メンバーとの重複・依存はないか？ |
+| 🎯 整合性 | 全員がObjectiveを向いているか？ |
+""")
+            st.markdown("---")
+            st.markdown("### 4. PPTX資料の生成")
+            st.markdown("""
+1. DASHBOARDタブで「🔄 データを読み込む」
+2. 「🚀 PPTXを生成する」を押す
+3. 数秒後に「⬇️ PPTXをダウンロード」が表示される
+
+**構成：** 表紙 → チームOKRサマリー → メンバー別詳細 → 統合ガントチャート
+""")
 
     data_path = BASE_DIR.resolve()
     st.markdown("---")
@@ -593,10 +714,17 @@ def render_plan(master: dict):
     if draft_key not in st.session_state:
         saved = io_get_plan(month_str, member)
         if saved:
-            st.session_state[draft_key] = {
-                item["kr_id"]: {"issue": item.get("issue",""), "actions": item.get("actions",[blank_action()])}
-                for item in saved.get("items", [])
-            }
+            # 旧フォーマット（issue + actions）を新フォーマット（issues）に変換
+            loaded = {}
+            for item in saved.get("items", []):
+                if "issues" in item:
+                    loaded[item["kr_id"]] = {"issues": item["issues"]}
+                else:
+                    # 旧データ互換
+                    loaded[item["kr_id"]] = {"issues": [
+                        {"text": item.get("issue",""), "actions": item.get("actions",[blank_action()])}
+                    ]}
+            st.session_state[draft_key] = loaded
             st.success(f"✅ 前回保存（{saved.get('saved_at','')}）を読み込みました。")
         else:
             st.session_state[draft_key] = {}
@@ -605,13 +733,18 @@ def render_plan(master: dict):
     draft: dict = st.session_state[draft_key]
     render_progress(step)
 
-    # STEP 0: KR選択
+    # ── STEP 0: KR選択 ────────────────────────────────────────────────────
     if step == 0:
         st.markdown('<div class="g-info">「今月最も重要なKRはどれですか？」全部やろうとせず、今月最も差が生まれるKRを選びましょう。</div>', unsafe_allow_html=True)
         st.markdown("")
         for i, kr in enumerate(krs):
-            kd   = draft.get(kr["id"], {})
-            done = kd.get("issue","").strip() and any(a.get("text","").strip() for a in kd.get("actions",[]))
+            kd     = draft.get(kr["id"], {})
+            issues = kd.get("issues", [])
+            done   = any(
+                iss.get("text","").strip() and
+                any(a.get("text","").strip() for a in iss.get("actions",[]))
+                for iss in issues
+            )
             col_text, col_btn = st.columns([6, 1])
             with col_text:
                 st.markdown(
@@ -624,117 +757,153 @@ def render_plan(master: dict):
                 )
             with col_btn:
                 if st.button("選ぶ", key=f"sel_kr_{i}", use_container_width=True):
-                    st.session_state.plan_kr_idx  = i
-                    st.session_state.plan_issue   = kd.get("issue","")
-                    st.session_state.plan_actions = kd.get("actions",[blank_action()])
-                    st.session_state.plan_step    = 1
+                    st.session_state.plan_kr_idx = i
+                    st.session_state.plan_issues = kd.get("issues", [blank_issue()])
+                    st.session_state.plan_step   = 1
                     st.rerun()
 
-    # STEP 1: 課題入力
+    # ── STEP 1: 壁（課題）＋アクション入力 ───────────────────────────────
     elif step == 1:
-        kr = krs[kr_idx]
-        col_form, col_tree = st.columns([3, 2], gap="medium")
-        with col_form:
-            st.markdown(f'<div style="background:{KR_COLORS[kr_idx]}18;border-left:4px solid {KR_COLORS[kr_idx]};padding:.5rem .85rem;border-radius:0 8px 8px 0;font-weight:600;font-size:.85rem;margin-bottom:.85rem;color:{KR_COLORS[kr_idx]};">{kr["label"]}：{kr["text"]}</div>', unsafe_allow_html=True)
-            st.markdown("#### 今月の壁は何ですか？")
-            st.markdown('<div class="g-info">「なぜKRに届いていないのか？」の<b>真の原因</b>を1文で言語化してください。</div>', unsafe_allow_html=True)
-            issue = st.text_area("課題", value=st.session_state.plan_issue, height=110,
-                placeholder="例）提案資料の訴求力が弱く、顧客の意思決定の後押しができていない",
-                label_visibility="collapsed")
-            st.session_state.plan_issue = issue
-            st.markdown('<div class="g-ok">✅ 「インタビューがゼロのため施策が推測止まりになっている」</div>', unsafe_allow_html=True)
-            c_back, c_next = st.columns([1, 2])
-            with c_back:
-                if st.button("← KR選択に戻る", use_container_width=True):
-                    st.session_state.plan_step = 0; st.rerun()
-            with c_next:
-                if st.button("次へ → アクションを決める", type="primary",
-                             use_container_width=True, disabled=not issue.strip()):
-                    st.session_state.plan_step = 2; st.rerun()
-        with col_tree:
-            render_logic_tree(master, kr_idx, issue, [], pal)
+        kr     = krs[kr_idx]
+        issues = st.session_state.plan_issues   # [{text, actions:[{text,start,end}]}]
 
-    # STEP 2: アクション入力（複数）
-    elif step == 2:
-        kr      = krs[kr_idx]
-        actions = st.session_state.plan_actions
         col_form, col_tree = st.columns([3, 2], gap="medium")
 
         with col_form:
             st.markdown(
                 f'<div style="background:{KR_COLORS[kr_idx]}18;border-left:4px solid {KR_COLORS[kr_idx]};'
-                f'padding:.5rem .85rem;border-radius:0 8px 8px 0;font-size:.82rem;margin-bottom:.85rem;color:{KR_COLORS[kr_idx]};">'
-                f'<b>{kr["label"]}：{kr["text"]}</b><br>'
-                f'<span style="font-weight:400;color:var(--color-text-secondary);">課題：{st.session_state.plan_issue[:55]}</span></div>',
+                f'padding:.5rem .85rem;border-radius:0 8px 8px 0;font-weight:600;font-size:.85rem;'
+                f'margin-bottom:.85rem;color:{KR_COLORS[kr_idx]};">{kr["label"]}：{kr["text"]}</div>',
                 unsafe_allow_html=True,
             )
-            st.markdown("#### 来月やり切るアクションを決めましょう")
-            st.markdown('<div class="g-info">「いつまでに・何を・どれだけ」を含む具体的な行動を入力してください。複数の施策がある場合は「＋ アクションを追加する」で増やせます（最大5件）。</div>', unsafe_allow_html=True)
+            st.markdown('<div class="g-info">KRに届かない<b>壁（課題）</b>を洗い出し、それぞれに対するアクションを設定してください。壁は最大3件まで追加できます。</div>', unsafe_allow_html=True)
 
-            to_delete = []
-            for idx, action in enumerate(actions):
+            issues_to_delete = []
+            for ii, iss in enumerate(issues):
                 with st.container(border=True):
+                    # 壁ヘッダー
                     col_hdr, col_del = st.columns([8, 1])
                     with col_hdr:
                         st.markdown(
-                            f'<div style="display:flex;align-items:center;gap:7px;">'
-                            f'<div style="width:20px;height:20px;border-radius:50%;background:{pal["main"]};'
-                            f'display:flex;align-items:center;justify-content:center;font-size:.68rem;font-weight:600;color:#fff;">A{idx+1}</div>'
-                            f'<span style="font-size:.85rem;font-weight:600;color:var(--color-text-primary);">アクション {idx+1}</span></div>',
+                            f'<div style="display:flex;align-items:center;gap:7px;margin-bottom:.3rem;">'
+                            f'<div style="width:22px;height:22px;border-radius:50%;background:#F39C12;'
+                            f'display:flex;align-items:center;justify-content:center;font-size:.7rem;font-weight:600;color:#fff;">壁{ii+1}</div>'
+                            f'<span style="font-size:.85rem;font-weight:600;color:var(--color-text-primary);">壁（課題） {ii+1}</span></div>',
                             unsafe_allow_html=True,
                         )
                     with col_del:
-                        if st.button("🗑", key=f"del_{idx}", help="削除"):
-                            to_delete.append(idx)
-                    actions[idx]["text"] = st.text_area(
-                        f"a{idx}", value=action.get("text",""), height=75,
-                        placeholder="例）6/15までにインタビューを10件実施し、結果をSlackで共有する",
-                        label_visibility="collapsed", key=f"atxt_{idx}",
-                    )
-                    c1, c2 = st.columns(2)
-                    with c1:
-                        try:
-                            sv = datetime.date.fromisoformat(action.get("start", datetime.date.today().isoformat()))
-                        except ValueError:
-                            sv = datetime.date.today()
-                        actions[idx]["start"] = st.date_input("開始日", value=sv, key=f"start_{idx}").isoformat()
-                    with c2:
-                        try:
-                            ev = datetime.date.fromisoformat(action.get("end", (datetime.date.today()+datetime.timedelta(days=30)).isoformat()))
-                        except ValueError:
-                            ev = datetime.date.today()+datetime.timedelta(days=30)
-                        actions[idx]["end"] = st.date_input("終了日", value=ev, key=f"end_{idx}").isoformat()
-                    if actions[idx]["start"] > actions[idx]["end"]:
-                        st.error("⚠️ 終了日が開始日より前です。")
+                        if st.button("🗑", key=f"del_issue_{ii}", help="この壁を削除"):
+                            issues_to_delete.append(ii)
 
-            for idx in sorted(to_delete, reverse=True):
-                if len(actions) > 1:
-                    actions.pop(idx)
+                    issues[ii]["text"] = st.text_area(
+                        f"issue_{ii}",
+                        value=iss.get("text",""),
+                        height=75,
+                        placeholder="例）提案資料の訴求力が弱く、顧客の意思決定の後押しができていない",
+                        label_visibility="collapsed",
+                        key=f"issue_txt_{ii}",
+                    )
+
+                    # アクション行
+                    st.markdown(
+                        '<div style="font-size:10px;color:var(--color-text-secondary);'
+                        'margin:.5rem 0 .3rem;font-weight:500;padding-top:.5rem;'
+                        'border-top:0.5px solid var(--color-border-tertiary);">⚡ アクション</div>',
+                        unsafe_allow_html=True,
+                    )
+
+                    actions = iss.get("actions", [blank_action()])
+                    issues[ii]["actions"] = actions
+                    actions_to_delete = []
+
+                    for ia, action in enumerate(actions):
+                        with st.container(border=False):
+                            col_ahdr, col_adel = st.columns([8, 1])
+                            with col_ahdr:
+                                st.markdown(
+                                    f'<div style="display:flex;align-items:center;gap:6px;'
+                                    f'background:var(--color-background-secondary);border-radius:6px;padding:.3rem .5rem;">'
+                                    f'<div style="width:18px;height:18px;border-radius:50%;background:{pal["main"]};'
+                                    f'display:flex;align-items:center;justify-content:center;font-size:.62rem;font-weight:600;color:#fff;">A{ia+1}</div>'
+                                    f'<span style="font-size:.8rem;font-weight:500;color:var(--color-text-primary);">アクション {ia+1}</span></div>',
+                                    unsafe_allow_html=True,
+                                )
+                            with col_adel:
+                                if st.button("✕", key=f"del_action_{ii}_{ia}", help="削除"):
+                                    actions_to_delete.append(ia)
+
+                            actions[ia]["text"] = st.text_area(
+                                f"act_{ii}_{ia}",
+                                value=action.get("text",""),
+                                height=65,
+                                placeholder="例）6/15までにインタビューを10件実施し、結果をSlackで共有する",
+                                label_visibility="collapsed",
+                                key=f"act_txt_{ii}_{ia}",
+                            )
+                            c1, c2 = st.columns(2)
+                            with c1:
+                                try:
+                                    sv = datetime.date.fromisoformat(action.get("start", datetime.date.today().isoformat()))
+                                except ValueError:
+                                    sv = datetime.date.today()
+                                actions[ia]["start"] = st.date_input("開始日", value=sv, key=f"start_{ii}_{ia}").isoformat()
+                            with c2:
+                                try:
+                                    ev = datetime.date.fromisoformat(action.get("end", (datetime.date.today()+datetime.timedelta(days=30)).isoformat()))
+                                except ValueError:
+                                    ev = datetime.date.today()+datetime.timedelta(days=30)
+                                actions[ia]["end"] = st.date_input("終了日", value=ev, key=f"end_{ii}_{ia}").isoformat()
+                            if actions[ia]["start"] > actions[ia]["end"]:
+                                st.error("⚠️ 終了日が開始日より前です。")
+
+                    for ia in sorted(actions_to_delete, reverse=True):
+                        if len(actions) > 1:
+                            actions.pop(ia)
+                        else:
+                            st.warning("アクションは最低1件必要です。")
+                    if actions_to_delete:
+                        st.rerun()
+
+                    if len(actions) < MAX_ACTIONS:
+                        if st.button("＋ アクションを追加", key=f"add_action_{ii}", use_container_width=True):
+                            actions.append(blank_action()); st.rerun()
+                    else:
+                        st.caption(f"アクションは最大 {MAX_ACTIONS} 件まで")
+
+            # 壁削除処理
+            for ii in sorted(issues_to_delete, reverse=True):
+                if len(issues) > 1:
+                    issues.pop(ii)
                 else:
-                    st.warning("アクションは最低1件必要です。")
-            if to_delete:
+                    st.warning("壁は最低1件必要です。")
+            if issues_to_delete:
                 st.rerun()
 
-            if len(actions) < MAX_ACTIONS:
-                if st.button("＋ アクションを追加する", use_container_width=True):
-                    actions.append(blank_action()); st.rerun()
+            # 壁追加ボタン
+            if len(issues) < 3:
+                if st.button("＋ 壁（課題）を追加する", use_container_width=True):
+                    issues.append(blank_issue()); st.rerun()
             else:
-                st.caption(f"アクションは最大 {MAX_ACTIONS} 件まで追加できます。")
+                st.caption("壁は最大3件まで追加できます。")
 
             st.markdown("---")
             c_back, c_other, c_save = st.columns([1, 1.5, 2])
             with c_back:
-                if st.button("← 課題に戻る", use_container_width=True):
-                    st.session_state.plan_step = 1; st.rerun()
+                if st.button("← KR選択に戻る", use_container_width=True):
+                    st.session_state.plan_step = 0; st.rerun()
             with c_other:
                 if st.button("別のKRも入力する", use_container_width=True):
-                    draft[krs[kr_idx]["id"]] = {"issue": st.session_state.plan_issue, "actions": actions}
+                    draft[krs[kr_idx]["id"]] = {"issues": issues}
                     st.session_state.plan_step = 0; st.rerun()
             with c_save:
-                valid_actions = [a for a in actions if a.get("text","").strip()]
+                has_valid = any(
+                    iss.get("text","").strip() and
+                    any(a.get("text","").strip() for a in iss.get("actions",[]))
+                    for iss in issues
+                )
                 if st.button("💾 保存する", type="primary",
-                             use_container_width=True, disabled=not valid_actions):
-                    draft[krs[kr_idx]["id"]] = {"issue": st.session_state.plan_issue, "actions": actions}
+                             use_container_width=True, disabled=not has_valid):
+                    draft[krs[kr_idx]["id"]] = {"issues": issues}
                     payload = dict(
                         member   = member,
                         month    = month_str,
@@ -744,14 +913,20 @@ def render_plan(master: dict):
                                 kr_id    = kr_["id"],
                                 kr_label = kr_["label"],
                                 kr_text  = kr_["text"],
-                                issue    = draft.get(kr_["id"],{}).get("issue",""),
-                                actions  = [
-                                    {"text": a.get("text",""), "start": a.get("start",""), "end": a.get("end","")}
-                                    for a in draft.get(kr_["id"],{}).get("actions",[])
-                                    if a.get("text","").strip()
+                                issues   = [
+                                    {
+                                        "text":    iss.get("text",""),
+                                        "actions": [
+                                            {"text": a.get("text",""), "start": a.get("start",""), "end": a.get("end","")}
+                                            for a in iss.get("actions",[]) if a.get("text","").strip()
+                                        ],
+                                    }
+                                    for iss in draft.get(kr_["id"],{}).get("issues",[])
+                                    if iss.get("text","").strip()
                                 ],
                             )
-                            for kr_ in krs if draft.get(kr_["id"],{}).get("actions")
+                            for kr_ in krs
+                            if draft.get(kr_["id"],{}).get("issues")
                         ],
                     )
                     if io_save_plan(month_str, member, payload):
@@ -761,7 +936,7 @@ def render_plan(master: dict):
                         st.session_state.plan_step = 0; st.rerun()
 
         with col_tree:
-            render_logic_tree(master, kr_idx, st.session_state.plan_issue, actions, pal)
+            render_logic_tree(master, kr_idx, issues, pal)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -773,16 +948,17 @@ def build_gantt(all_plans: list[dict]) -> Any | None:
     for plan in all_plans:
         m = plan.get("member","不明")
         for item in plan.get("items",[]):
-            for action in item.get("actions",[]):
-                if not action.get("text") or not action.get("start") or not action.get("end"):
-                    continue
-                rows.append(dict(
-                    member = m,
-                    label  = f'{m}｜{item["kr_label"]}',
-                    action = action["text"],
-                    start  = pd.Timestamp(action["start"]),
-                    end    = pd.Timestamp(action["end"]) + pd.Timedelta(days=1),
-                ))
+            for iss in item.get("issues",[]):
+                for action in iss.get("actions",[]):
+                    if not action.get("text") or not action.get("start") or not action.get("end"):
+                        continue
+                    rows.append(dict(
+                        member = m,
+                        label  = f'{m}｜{item["kr_label"]}',
+                        action = action["text"],
+                        start  = pd.Timestamp(action["start"]),
+                        end    = pd.Timestamp(action["end"]) + pd.Timedelta(days=1),
+                    ))
     if not rows:
         return None
     df = pd.DataFrame(rows)
@@ -849,9 +1025,19 @@ def render_dashboard(master: dict):
         return
 
     # 統計
-    total_actions = sum(len(item.get("actions",[])) for p in all_plans for item in p.get("items",[]))
-    all_starts = [a["start"] for p in all_plans for item in p.get("items",[]) for a in item.get("actions",[]) if a.get("start")]
-    all_ends   = [a["end"]   for p in all_plans for item in p.get("items",[]) for a in item.get("actions",[]) if a.get("end")]
+    total_actions = sum(
+        len(iss.get("actions",[]))
+        for p in all_plans for item in p.get("items",[])
+        for iss in item.get("issues",[])
+    )
+    all_starts = [
+        a["start"] for p in all_plans for item in p.get("items",[])
+        for iss in item.get("issues",[]) for a in iss.get("actions",[]) if a.get("start")
+    ]
+    all_ends = [
+        a["end"] for p in all_plans for item in p.get("items",[])
+        for iss in item.get("issues",[]) for a in iss.get("actions",[]) if a.get("end")
+    ]
 
     st.markdown('<div class="stat-row">', unsafe_allow_html=True)
     for n, lbl in [
@@ -890,22 +1076,34 @@ def render_dashboard(master: dict):
         for item in plan.get("items",[]):
             kr_idx_ = next((i for i,kr in enumerate(master.get("key_results",[])) if kr.get("id")==item.get("kr_id")), 0)
             kr_col  = KR_COLORS[kr_idx_ % len(KR_COLORS)]
-            a_html  = "".join(
-                f'<div class="action-list-item">'
-                f'<div class="a-num" style="background:{pal["main"]};">A{ai+1}</div>'
-                f'<div><span style="font-size:.8rem;color:var(--color-text-primary);">{a.get("text","")}</span>'
-                f'<div style="font-size:.7rem;color:var(--color-text-secondary);">{a.get("start","")} → {a.get("end","")}</div></div>'
-                f'</div>'
-                for ai, a in enumerate(item.get("actions",[])) if a.get("text","").strip()
-            )
+            issues_html = ""
+            for ii, iss in enumerate(item.get("issues",[])):
+                if not iss.get("text","").strip():
+                    continue
+                a_html = "".join(
+                    f'<div class="action-list-item">'
+                    f'<div class="a-num" style="background:{pal["main"]};">A{ai+1}</div>'
+                    f'<div><span style="font-size:.8rem;color:var(--color-text-primary);">{a.get("text","")}</span>'
+                    f'<div style="font-size:.7rem;color:var(--color-text-secondary);">{a.get("start","")} → {a.get("end","")}</div></div>'
+                    f'</div>'
+                    for ai, a in enumerate(iss.get("actions",[])) if a.get("text","").strip()
+                )
+                issues_html += (
+                    f'<div style="background:var(--color-background-primary);border-radius:6px;'
+                    f'padding:.35rem .6rem;margin-bottom:.35rem;">'
+                    f'<div style="display:flex;align-items:center;gap:5px;margin-bottom:.25rem;">'
+                    f'<div style="width:18px;height:18px;border-radius:50%;background:#F39C12;'
+                    f'display:flex;align-items:center;justify-content:center;font-size:.62rem;font-weight:600;color:#fff;">壁{ii+1}</div>'
+                    f'<span style="font-size:.78rem;font-weight:500;color:var(--color-text-primary);">{iss["text"][:45]}</span>'
+                    f'</div>{a_html}</div>'
+                )
             st.markdown(
                 f'<div class="kr-block">'
                 f'<div style="display:flex;align-items:center;gap:6px;margin-bottom:.35rem;">'
                 f'<span style="background:{kr_col};color:#fff;font-size:.68rem;font-weight:700;padding:1px 8px;border-radius:20px;">{item["kr_label"]}</span>'
                 f'<span style="font-size:.78rem;font-weight:500;color:var(--color-text-primary);">{item.get("kr_text","")[:45]}</span>'
                 f'</div>'
-                f'<div style="font-size:.75rem;color:var(--color-text-secondary);margin-bottom:.35rem;">🔍 {item.get("issue","")[:55]}</div>'
-                f'{a_html}</div>', unsafe_allow_html=True,
+                f'{issues_html}</div>', unsafe_allow_html=True,
             )
         st.markdown("</div>", unsafe_allow_html=True)
 
@@ -1007,10 +1205,11 @@ def build_pptx(team_name,month_label,master,all_plans,gantt_png):
         _txt(s2,m,cx+Cm(.15),cy+Cm(.05),card_w-Cm(.3),Inches(.38),sz=11,bold=True,color=C_WHT,align=PP_ALIGN.CENTER)
         iy=cy+Inches(.5)
         for item in plan.get("items",[]):
-            for a in item.get("actions",[])[:2]:
-                if a.get("text","").strip() and iy<cy+ch-Inches(.1):
-                    _txt(s2,f"• {a['text'][:28]}",cx+Cm(.2),iy,card_w-Cm(.4),Inches(.45),sz=8,color=C_SLAT)
-                    iy+=Inches(.38)
+            for iss in item.get("issues",[]):
+                for a in iss.get("actions",[])[:1]:
+                    if a.get("text","").strip() and iy<cy+ch-Inches(.1):
+                        _txt(s2,f"• {a['text'][:28]}",cx+Cm(.2),iy,card_w-Cm(.4),Inches(.45),sz=8,color=C_SLAT)
+                        iy+=Inches(.38)
         cx+=card_w+Inches(.25)
 
     # メンバー別詳細
@@ -1030,18 +1229,19 @@ def build_pptx(team_name,month_label,master,all_plans,gantt_png):
             cx+=cw
         row_bgs=[C_SNOW,RGBColor(0xFF,0xFF,0xFF)]; ri=0
         for item in plan.get("items",[]):
-            for a in [x for x in item.get("actions",[]) if x.get("text","").strip()]:
-                cy_=tbl_y+row_h*(ri+1)
-                if cy_+row_h>H-Inches(.15): break
-                vals=[item.get("kr_label",""),item.get("kr_text","")[:35],item.get("issue","")[:38],a.get("text","")[:50],a.get("start",""),a.get("end","")]
-                cx=tbl_x; bg=row_bgs[ri%2]
-                for ci,(val,cw) in enumerate(zip(vals,col_ws)):
-                    _rect(sm,cx,cy_,cw,row_h,bg,border=_rgb("#D5D8DC"))
-                    _txt(sm,val,cx+Cm(.15),cy_+Cm(.07),cw-Cm(.3),row_h,sz=9,
-                         color=_rgb(pal["main"]) if ci==0 else C_SLAT,
-                         align=PP_ALIGN.CENTER if ci in(0,4,5) else PP_ALIGN.LEFT)
-                    cx+=cw
-                ri+=1
+            for iss in item.get("issues",[]):
+                for a in [x for x in iss.get("actions",[]) if x.get("text","").strip()]:
+                    cy_=tbl_y+row_h*(ri+1)
+                    if cy_+row_h>H-Inches(.15): break
+                    vals=[item.get("kr_label",""),item.get("kr_text","")[:35],iss.get("text","")[:38],a.get("text","")[:50],a.get("start",""),a.get("end","")]
+                    cx=tbl_x; bg=row_bgs[ri%2]
+                    for ci,(val,cw) in enumerate(zip(vals,col_ws)):
+                        _rect(sm,cx,cy_,cw,row_h,bg,border=_rgb("#D5D8DC"))
+                        _txt(sm,val,cx+Cm(.15),cy_+Cm(.07),cw-Cm(.3),row_h,sz=9,
+                             color=_rgb(pal["main"]) if ci==0 else C_SLAT,
+                             align=PP_ALIGN.CENTER if ci in(0,4,5) else PP_ALIGN.LEFT)
+                        cx+=cw
+                    ri+=1
 
     # ガントチャート
     sg=prs.slides.add_slide(blank); _rect(sg,0,0,W,Inches(.95),C_NAVY)
@@ -1071,6 +1271,8 @@ def main():
     with st.sidebar:
         st.markdown(f"## 🌟 OKR管理\n**{team_name}**")
         st.markdown("---")
+        st.markdown('<div class="local-badge">💾 ローカル保存モード</div>', unsafe_allow_html=True)
+
         st.markdown("### 📌 あなたの名前")
         selected = st.selectbox("名前", MEMBERS,
             index=MEMBERS.index(st.session_state.cur_member) if st.session_state.cur_member in MEMBERS else 0,
