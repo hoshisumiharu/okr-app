@@ -999,14 +999,12 @@ def render_plan(master: dict):
                                         f"【担当】{member}"
                                     )
                                     backlog_url = (
-                                        backlog_url = (
-    "https://kyuden-ict.backlog.com/add/MIMAMORIOPS?"
-    + urllib.parse.urlencode({
-        "summary":     summary,
-        "description": desc,
-        "templateId":  "0",  
-    })
-)
+                                        "https://kyuden-ict.backlog.com/add/MIMAMORIOPS?"
+                                        + urllib.parse.urlencode({
+                                            "summary":     summary,
+                                            "description": desc,
+                                            "templateId":  "0",
+                                        })
                                     )
                                     st.link_button(
                                         f"📋 {a_['text'][:30]}{'...' if len(a_['text'])>30 else ''}",
