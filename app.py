@@ -545,6 +545,7 @@ def render_home():
 **構成：** 表紙 → チームOKRサマリー → メンバー別詳細 → 統合ガントチャート
 """)
 
+   
     st.markdown("---")
     st.markdown("### 月次の運用サイクル")
     cols = st.columns(4)
@@ -925,9 +926,42 @@ def render_plan(master: dict):
                     )
                     if io_save_plan(month_str, member, payload):
                         st.toast(f"✅ {member} さんのプランを保存しました！", icon="🎉")
-                        st.success("保存完了！「DASHBOARD」タブで全員の計画を確認できます。")
-                        del st.session_state[draft_key]
-                        st.session_state.plan_step = 0; st.rerun()
+                        st.success("保存完了！続けてBacklogにチケットを起票できます。")
+                        # ── Backlog起票リンクを生成 ──────────────────────────
+                        st.markdown("#### 📋 Backlogへ起票する")
+                        st.markdown('<div class="g-info">ボタンを押すとアクション内容が入力済みの状態でBacklogが開きます。内容を確認して「登録」を押してください。</div>', unsafe_allow_html=True)
+                        for kr_ in krs:
+                            kd_ = draft.get(kr_["id"], {})
+                            for iss_ in kd_.get("issues", []):
+                                if not iss_.get("text","").strip():
+                                    continue
+                                for a_ in iss_.get("actions", []):
+                                    if not a_.get("text","").strip():
+                                        continue
+                                    import urllib.parse
+                                    summary = a_["text"]
+                                    desc = (
+                                        f"【KR】{kr_['label']}：{kr_['text']}\n"
+                                        f"【壁・課題】{iss_['text']}\n"
+                                        f"【期間】{a_.get('start','')} → {a_.get('end','')}\n"
+                                        f"【担当】{member}"
+                                    )
+                                    backlog_url = (
+                                        "https://kyuden-ict.backlog.com/add/MIMAMORIOPS?"
+                                        + urllib.parse.urlencode({
+                                            "summary":     summary,
+                                            "description": desc,
+                                        })
+                                    )
+                                    st.link_button(
+                                        f"📋 {a_['text'][:30]}{'...' if len(a_['text'])>30 else ''}",
+                                        backlog_url,
+                                        use_container_width=True,
+                                    )
+                        st.markdown("---")
+                        if st.button("✅ 起票完了・入力画面に戻る", use_container_width=True):
+                            del st.session_state[draft_key]
+                            st.session_state.plan_step = 0; st.rerun()
 
         with col_tree:
             render_logic_tree(master, kr_idx, issues, pal)
@@ -1265,6 +1299,7 @@ def main():
     with st.sidebar:
         st.markdown(f"## 🌟 OKR管理\n**{team_name}**")
         st.markdown("---")
+        st.markdown('<div class="local-badge">💾 ローカル保存モード</div>', unsafe_allow_html=True)
 
         st.markdown("### 📌 あなたの名前")
         selected = st.selectbox("名前", MEMBERS,
