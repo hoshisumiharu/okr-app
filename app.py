@@ -422,7 +422,7 @@ def render_home():
   <div class="flow-arr">→</div>
   <div class="flow-box" style="background:#FEF9E7;border:1.5px solid #F39C12;">
     <div style="font-size:1.35rem;margin-bottom:.25rem">🔍</div>
-    <div style="font-size:.7rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#B7770D">Issue（課題）</div>
+    <div style="font-size:.7rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#B7770D">壁（課題）</div>
     <div style="font-size:.78rem;margin-top:.2rem;line-height:1.4;color:var(--color-text-secondary)">KRに届かない<br><b>真の原因</b></div>
   </div>
   <div class="flow-arr">→</div>
@@ -431,9 +431,15 @@ def render_home():
     <div style="font-size:.7rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#1D6A45">Action（行動）</div>
     <div style="font-size:.78rem;margin-top:.2rem;line-height:1.4;color:var(--color-text-secondary)">今月<b>やり切る</b><br>具体的な一手（複数可）</div>
   </div>
+  <div class="flow-arr">→</div>
+  <div class="flow-box" style="background:#F4ECF7;border:1.5px solid #7D3C98;">
+    <div style="font-size:1.35rem;margin-bottom:.25rem">📋</div>
+    <div style="font-size:.7rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#7D3C98">Backlog起票</div>
+    <div style="font-size:.78rem;margin-top:.2rem;line-height:1.4;color:var(--color-text-secondary)">保存後に<br><b>ワンクリック起票</b></div>
+  </div>
 </div>
 """, unsafe_allow_html=True)
-    st.markdown('<div class="g-info"><b>なぜこの順番？</b>　KR → 壁（課題） → アクション の順に強制的に考えさせる設計。各KRに壁を最大3件、各壁にアクションを最大5件追加できます。</div>', unsafe_allow_html=True)
+    st.markdown('<div class="g-info"><b>なぜこの順番？</b>　KR → 壁（課題） → アクション の順に強制的に考えさせる設計。アクションを保存するとBacklogへのワンクリック起票リンクが表示されます。</div>', unsafe_allow_html=True)
 
     # ── 操作ガイドボタン ──────────────────────────────────────────────────
     st.markdown("---")
@@ -544,12 +550,6 @@ def render_home():
 
 **構成：** 表紙 → チームOKRサマリー → メンバー別詳細 → 統合ガントチャート
 """)
-
-    data_path = BASE_DIR.resolve()
-    st.markdown("---")
-    st.markdown("### 📁 データの保存場所")
-    st.markdown(f'<div class="local-badge">💾 保存先：<code>{data_path}</code></div>', unsafe_allow_html=True)
-    st.markdown('<div class="g-info"><b>複数人で共有する場合</b>　<code>data</code>フォルダをOneDriveや社内共有フォルダに移動し、<code>secrets.toml</code>の<code>data_dir</code>にそのパスを指定してください。<br>例）<code>data_dir = "C:/Users/Shared/okr_data"</code></div>', unsafe_allow_html=True)
 
     st.markdown("---")
     st.markdown("### 月次の運用サイクル")
@@ -1351,7 +1351,6 @@ def main():
     with st.sidebar:
         st.markdown(f"## 🌟 OKR管理\n**{team_name}**")
         st.markdown("---")
-        st.markdown('<div class="local-badge">💾 ローカル保存モード</div>', unsafe_allow_html=True)
 
         st.markdown("### 📌 あなたの名前")
         selected = st.selectbox("名前", MEMBERS,
