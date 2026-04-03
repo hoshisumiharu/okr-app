@@ -1,4 +1,4 @@
-"""　
+"""
 OKR × 業務計画 統合管理アプリ  ─  app.py （ローカル保存版）
 =============================================================
 S3の代わりにローカルフォルダ（data/）にJSONを保存します。
@@ -545,7 +545,6 @@ def render_home():
 **構成：** 表紙 → チームOKRサマリー → メンバー別詳細 → 統合ガントチャート
 """)
 
-   
     st.markdown("---")
     st.markdown("### 月次の運用サイクル")
     cols = st.columns(4)
@@ -687,6 +686,53 @@ def render_strategy(master: dict):
             if io_save_master(payload):
                 st.toast("🌟 OKRを確定しました！北極星が輝きました。", icon="🌟")
                 st.success("✅ 確定保存しました。ページを更新すると北極星バナーに反映されます。")
+
+    # ── データ管理（管理者専用） ───────────────────────────────────────────
+    st.markdown("---")
+    with st.expander("🗑️ データ管理（テストデータの削除など）"):
+        st.markdown('<div class="g-warn">⚠️ 削除したデータは元に戻せません。必ず確認してから実行してください。</div>', unsafe_allow_html=True)
+
+        month_str = st.session_state.month_str
+        month_label = datetime.date.fromisoformat(month_str+"-01").strftime("%Y年%m月")
+
+        # 対象月のプラン一覧を表示
+        plans = io_list_plans(month_str)
+        if not plans:
+            st.info(f"📭 {month_label} の保存データはありません。")
+        else:
+            st.markdown(f"**{month_label} の保存データ一覧**")
+            for plan in plans:
+                m        = plan.get("member","不明")
+                saved_at = plan.get("saved_at","")
+                col_info, col_del = st.columns([4, 1])
+                with col_info:
+                    st.markdown(
+                        f'<div style="background:var(--color-background-secondary);'
+                        f'border-radius:8px;padding:.5rem .85rem;margin-bottom:.3rem;">'
+                        f'<span style="font-weight:600;">{m}</span>'
+                        f'<span style="font-size:.75rem;color:var(--color-text-secondary);margin-left:10px;">保存日時：{saved_at}</span>'
+                        f'</div>',
+                        unsafe_allow_html=True,
+                    )
+                with col_del:
+                    if st.button("削除", key=f"del_plan_{m}", type="secondary"):
+                        p = plan_path(month_str, m)
+                        if p.exists():
+                            p.unlink()
+                            st.toast(f"🗑️ {m} のデータを削除しました。", icon="🗑️")
+                            st.session_state.team_data = None
+                            st.rerun()
+
+        st.markdown("---")
+        st.markdown("**全データをまとめて削除する**")
+        if st.button("🗑️ この月の全データを削除する", type="secondary", use_container_width=True):
+            plans_dir = BASE_DIR / "plans" / month_str
+            if plans_dir.exists():
+                import shutil
+                shutil.rmtree(plans_dir)
+            st.toast(f"🗑️ {month_label} の全データを削除しました。", icon="🗑️")
+            st.session_state.team_data = None
+            st.rerun()
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1295,11 +1341,6 @@ def main():
     month_str  = st.session_state.month_str
     month_disp = datetime.date.fromisoformat(month_str+"-01").strftime("%Y年%m月")
     master     = io_get_master()
-
-    with st.sidebar:
-        st.markdown(f"## 🌟 OKR管理\n**{team_name}**")
-        st.markdown("---")
-        st.markdown('<div class="local-badge">💾 ローカル保存モード</div>', unsafe_allow_html=True)
 
         st.markdown("### 📌 あなたの名前")
         selected = st.selectbox("名前", MEMBERS,
