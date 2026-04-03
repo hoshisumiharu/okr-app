@@ -445,10 +445,19 @@ def render_home():
     st.markdown("---")
     st.markdown("### 📖 操作ガイド")
     gc1, gc2 = st.columns(2)
+
     with gc1:
-        with st.popover("👤 メンバー向けガイドを見る", use_container_width=True):
-            st.markdown("## 👤 メンバー向け 操作ガイド")
-            st.markdown("---")
+        if st.button("👤 メンバー向けガイドを見る", use_container_width=True):
+            st.session_state["show_member_guide"] = True
+
+    with gc2:
+        if st.button("👔 マネジャー向けガイドを見る", use_container_width=True):
+            st.session_state["show_manager_guide"] = True
+
+    # メンバー向けガイド ダイアログ
+    if st.session_state.get("show_member_guide"):
+        @st.dialog("👤 メンバー向け 操作ガイド", width="large")
+        def member_guide_dialog():
             st.markdown("### 1. アクセス方法")
             st.markdown("ブラウザでアプリのURLを開くだけです。インストール不要。左のサイドバーで **自分の名前** を必ず選んでください。")
             st.warning("⚠️ 名前を間違えると他の人のデータを上書きしてしまいます。")
@@ -461,17 +470,11 @@ def render_home():
             st.markdown("今月最も重要なKRを1つ選んで「選ぶ」ボタンを押してください。")
 
             st.markdown("#### STEP 2：壁とアクションを決める")
-            st.markdown("""
-**壁（課題）を入力する**
-「なぜこのKRに今届いていないのか？」の原因を1文で書いてください。
-""")
+            st.markdown("**壁（課題）を入力する**\n「なぜこのKRに今届いていないのか？」の原因を1文で書いてください。")
             st.markdown('<div class="g-ok">✅ 「インタビューがゼロのため施策が推測止まりになっている」</div>', unsafe_allow_html=True)
             st.markdown('<div class="g-ng">❌ 「NPSが低い」← 現象ではなく原因を書く</div>', unsafe_allow_html=True)
 
-            st.markdown("""
-**アクションを入力する**
-各壁の下に「いつまでに・何を・どれだけ」を含む行動を入力してください。
-""")
+            st.markdown("**アクションを入力する**\n各壁の下に「いつまでに・何を・どれだけ」を含む行動を入力してください。")
             st.markdown('<div class="g-ok">✅ 「6/15までにインタビュー10件実施しSlackで共有する」</div>', unsafe_allow_html=True)
             st.markdown('<div class="g-ng">❌ 「顧客の声を聞く」← いつ？何件？</div>', unsafe_allow_html=True)
 
@@ -481,7 +484,7 @@ def render_home():
 - 「＋ アクションを追加」で各壁に最大5件のアクションを追加できます
 - 🗑 ボタンで不要な壁・アクションを削除できます
 """)
-            st.markdown("入力が終わったら「💾 保存する」を押してください。")
+            st.markdown("入力が終わったら「💾 保存する」を押してください。保存後にBacklog起票画面が表示されます。")
 
             st.markdown("---")
             st.markdown("### 3. 複数のKRに入力したい場合")
@@ -499,11 +502,17 @@ def render_home():
 **Q. 入力期限は？**
 毎月1〜3日を目安に入力してください。
 """)
-
-    with gc2:
-        with st.popover("👔 マネジャー向けガイドを見る", use_container_width=True):
-            st.markdown("## 👔 マネジャー向け 操作ガイド")
             st.markdown("---")
+            if st.button("閉じる", use_container_width=True):
+                st.session_state["show_member_guide"] = False
+                st.rerun()
+
+        member_guide_dialog()
+
+    # マネジャー向けガイド ダイアログ
+    if st.session_state.get("show_manager_guide"):
+        @st.dialog("👔 マネジャー向け 操作ガイド", width="large")
+        def manager_guide_dialog():
             st.markdown("### 1. 月次運用カレンダー")
             st.markdown("""
 | タイミング | 作業 | 使う機能 |
@@ -550,6 +559,12 @@ def render_home():
 
 **構成：** 表紙 → チームOKRサマリー → メンバー別詳細 → 統合ガントチャート
 """)
+            st.markdown("---")
+            if st.button("閉じる", use_container_width=True):
+                st.session_state["show_manager_guide"] = False
+                st.rerun()
+
+        manager_guide_dialog()
 
     st.markdown("---")
     st.markdown("### 月次の運用サイクル")
