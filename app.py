@@ -979,9 +979,10 @@ def render_plan(master: dict):
                     if io_save_plan(month_str, member, payload):
                         st.toast(f"✅ {member} さんのプランを保存しました！", icon="🎉")
                         st.success("保存完了！続けてBacklogにチケットを起票できます。")
-                        # ── Backlog起票リンクを生成 ──────────────────────────
+                        # ── Backlog起票 ──────────────────────────────────────
                         st.markdown("#### 📋 Backlogへ起票する")
-                        st.markdown('<div class="g-info">ボタンを押すとアクション内容が入力済みの状態でBacklogが開きます。内容を確認して「登録」を押してください。</div>', unsafe_allow_html=True)
+                        st.markdown('<div class="g-info">① テキストをコピーしてBacklogを開く → ② タイトルと説明に貼り付けて登録してください。</div>', unsafe_allow_html=True)
+                        import urllib.parse
                         for kr_ in krs:
                             kd_ = draft.get(kr_["id"], {})
                             for iss_ in kd_.get("issues", []):
@@ -990,7 +991,6 @@ def render_plan(master: dict):
                                 for a_ in iss_.get("actions", []):
                                     if not a_.get("text","").strip():
                                         continue
-                                    import urllib.parse
                                     summary = a_["text"]
                                     desc = (
                                         f"【KR】{kr_['label']}：{kr_['text']}\n"
@@ -998,19 +998,24 @@ def render_plan(master: dict):
                                         f"【期間】{a_.get('start','')} → {a_.get('end','')}\n"
                                         f"【担当】{member}"
                                     )
-                                    backlog_url = (
-                                        "https://kyuden-ict.backlog.com/add/MIMAMORIOPS?"
-                                        + urllib.parse.urlencode({
-                                            "summary":     summary,
-                                            "description": desc,
-                                            "templateId":  "0",
-                                        })
-                                    )
-                                    st.link_button(
-                                        f"📋 {a_['text'][:30]}{'...' if len(a_['text'])>30 else ''}",
-                                        backlog_url,
-                                        use_container_width=True,
-                                    )
+                                    backlog_url = "https://kyuden-ict.backlog.com/add/MIMAMORIOPS"
+                                    with st.container(border=True):
+                                        st.markdown(
+                                            f'<div style="font-size:.8rem;font-weight:600;'
+                                            f'color:var(--color-text-primary);margin-bottom:.4rem;">'
+                                            f'⚡ {a_["text"][:40]}{"..." if len(a_["text"])>40 else ""}'
+                                            f'</div>',
+                                            unsafe_allow_html=True,
+                                        )
+                                        st.markdown("**件名（コピーしてBacklogに貼り付け）**")
+                                        st.code(summary, language=None)
+                                        st.markdown("**説明（コピーしてBacklogに貼り付け）**")
+                                        st.code(desc, language=None)
+                                        st.link_button(
+                                            "🔗 Backlogで新規チケットを開く",
+                                            backlog_url,
+                                            use_container_width=True,
+                                        )
                         st.markdown("---")
                         if st.button("✅ 起票完了・入力画面に戻る", use_container_width=True):
                             del st.session_state[draft_key]
