@@ -38,9 +38,11 @@ import traceback
 from pathlib import Path
 from typing import Any
 
+import gspread
 import pandas as pd
 import plotly.express as px
 import streamlit as st
+from google.oauth2.service_account import Credentials
 from pptx import Presentation
 from pptx.dml.color import RGBColor
 from pptx.enum.text import PP_ALIGN
@@ -190,75 +192,213 @@ def load_config() -> dict:
         members   = list(st.secrets["app"]["members"])
         team_name = str(st.secrets["app"].get("team_name", "チーム"))
         admin_pin = str(st.secrets["app"].get("admin_pin", "1234"))
-        data_dir  = str(st.secrets["app"].get("data_dir", "data"))
+        sheet_id  = str(st.secrets["app"].get("spreadsheet_id", ""))
     except Exception:
         members   = ["田中 一郎", "鈴木 花子", "佐藤 健二", "山田 美咲"]
         team_name = "プロダクトチーム"
         admin_pin = "1234"
-        data_dir  = "data"
+        sheet_id  = ""
     return dict(members=members, team_name=team_name,
-                admin_pin=admin_pin, data_dir=data_dir)
+                admin_pin=admin_pin, sheet_id=sheet_id)
 
 
 CFG     = load_config()
 MEMBERS = CFG["members"]
 
-# app.py と同じ場所に data/ フォルダを作成
-BASE_DIR = Path(__file__).parent / CFG["data_dir"]
+# ローカルフォールバック用（Sheets未設定時）
+BASE_DIR = Path(__file__).parent / "data"
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# ローカルファイル I/O
+# Google Sheets クライアント
 # ══════════════════════════════════════════════════════════════════════════════
 
-def _read_json(path: Path) -> dict | None:
+@st.cache_resource(ttl=600)
+def get_gsheet_client():
+    """gspreadクライアントを返す。未設定の場合はNone。"""
     try:
-        return json.loads(path.read_text(encoding="utf-8")) if path.exists() else None
+        creds_dict = dict(st.secrets["gcp"])
+        # private_key の改行を正規化
+        if "private_key" in creds_dict:
+            creds_dict["private_key"] = creds_dict["private_key"].replace("\\n", "\n")
+        scopes = [
+            "https://spreadsheets.google.com/feeds",
+            "https://www.googleapis.com/auth/drive",
+        ]
+        creds  = Credentials.from_service_account_info(creds_dict, scopes=scopes)
+        client = gspread.authorize(creds)
+        return client
     except Exception:
         return None
 
 
-def _write_json(path: Path, data: dict) -> bool:
+def _get_or_create_sheet(client, title: str):
+    """スプレッドシート内のシートを取得。なければ作成。"""
+    ss = client.open_by_key(CFG["sheet_id"])
     try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+        return ss.worksheet(title)
+    except gspread.WorksheetNotFound:
+        ws = ss.add_worksheet(title=title, rows=10, cols=2)
+        ws.append_row(["key", "value"])
+        return ws
+
+
+def _sheets_get(client, sheet_title: str, key: str) -> dict | None:
+    """シートからkeyに対応するJSONを取得。"""
+    try:
+        ws   = _get_or_create_sheet(client, sheet_title)
+        data = ws.get_all_records()
+        for row in data:
+            if str(row.get("key","")) == key:
+                return json.loads(row["value"])
+        return None
+    except Exception:
+        return None
+
+
+def _sheets_set(client, sheet_title: str, key: str, data: dict) -> bool:
+    """シートにkeyとJSONを保存（既存行は上書き）。"""
+    try:
+        ws    = _get_or_create_sheet(client, sheet_title)
+        rows  = ws.get_all_records()
+        value = json.dumps(data, ensure_ascii=False)
+        for i, row in enumerate(rows, start=2):
+            if str(row.get("key","")) == key:
+                ws.update_cell(i, 2, value)
+                return True
+        ws.append_row([key, value])
         return True
     except Exception as e:
-        st.error(f"ファイル保存エラー: {e}")
+        st.error(f"Sheets保存エラー: {e}")
         return False
 
 
-def master_path() -> Path:
-    return BASE_DIR / "master_config.json"
+def _sheets_delete(client, sheet_title: str, key: str) -> bool:
+    """シートからkeyの行を削除。"""
+    try:
+        ws   = _get_or_create_sheet(client, sheet_title)
+        rows = ws.get_all_records()
+        for i, row in enumerate(rows, start=2):
+            if str(row.get("key","")) == key:
+                ws.delete_rows(i)
+                return True
+        return True
+    except Exception:
+        return False
 
 
-def plan_path(month_str: str, member: str) -> Path:
+def _sheets_list(client, sheet_title: str, prefix: str) -> list[dict]:
+    """指定prefixで始まるkeyのJSON一覧を返す。"""
+    try:
+        ws   = _get_or_create_sheet(client, sheet_title)
+        rows = ws.get_all_records()
+        result = []
+        for row in rows:
+            k = str(row.get("key",""))
+            if k.startswith(prefix):
+                try:
+                    result.append(json.loads(row["value"]))
+                except Exception:
+                    pass
+        return result
+    except Exception:
+        return []
+
+
+# ── ローカルフォールバック ────────────────────────────────────────────────
+
+def _local_get(key: str) -> dict | None:
+    p = BASE_DIR / f"{key.replace('/', '_')}.json"
+    try:
+        return json.loads(p.read_text(encoding="utf-8")) if p.exists() else None
+    except Exception:
+        return None
+
+
+def _local_set(key: str, data: dict) -> bool:
+    p = BASE_DIR / f"{key.replace('/', '_')}.json"
+    try:
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+        return True
+    except Exception as e:
+        st.error(f"ローカル保存エラー: {e}")
+        return False
+
+
+def _local_delete(key: str) -> bool:
+    p = BASE_DIR / f"{key.replace('/', '_')}.json"
+    if p.exists():
+        p.unlink()
+    return True
+
+
+def _local_list(prefix: str) -> list[dict]:
+    safe = prefix.replace("/", "_")
+    result = []
+    for p in sorted(BASE_DIR.glob(f"{safe}*.json")):
+        try:
+            result.append(json.loads(p.read_text(encoding="utf-8")))
+        except Exception:
+            pass
+    return result
+
+
+# ── 統合I/O（Sheets優先、フォールバックはローカル） ────────────────────────
+
+MASTER_KEY   = "master_config"
+PLANS_SHEET  = "plans"
+
+
+def plan_key(month_str: str, member: str) -> str:
     safe = member.replace(" ", "_").replace("　", "_")
-    return BASE_DIR / "plans" / month_str / f"{month_str}_{safe}.json"
+    return f"{month_str}/{safe}"
 
 
 def io_get_master() -> dict:
-    return _read_json(master_path()) or DEFAULT_MASTER.copy()
+    client = get_gsheet_client()
+    if client and CFG["sheet_id"]:
+        data = _sheets_get(client, "master", MASTER_KEY)
+        return data if data else DEFAULT_MASTER.copy()
+    return _local_get(MASTER_KEY) or DEFAULT_MASTER.copy()
 
 
 def io_save_master(data: dict) -> bool:
-    return _write_json(master_path(), data)
+    client = get_gsheet_client()
+    if client and CFG["sheet_id"]:
+        return _sheets_set(client, "master", MASTER_KEY, data)
+    return _local_set(MASTER_KEY, data)
 
 
 def io_get_plan(month_str: str, member: str) -> dict | None:
-    return _read_json(plan_path(month_str, member))
+    client = get_gsheet_client()
+    key    = plan_key(month_str, member)
+    if client and CFG["sheet_id"]:
+        return _sheets_get(client, PLANS_SHEET, key)
+    return _local_get(key)
 
 
 def io_save_plan(month_str: str, member: str, data: dict) -> bool:
-    return _write_json(plan_path(month_str, member), data)
+    client = get_gsheet_client()
+    key    = plan_key(month_str, member)
+    if client and CFG["sheet_id"]:
+        return _sheets_set(client, PLANS_SHEET, key, data)
+    return _local_set(key, data)
+
+
+def io_delete_plan(month_str: str, member: str) -> bool:
+    client = get_gsheet_client()
+    key    = plan_key(month_str, member)
+    if client and CFG["sheet_id"]:
+        return _sheets_delete(client, PLANS_SHEET, key)
+    return _local_delete(key)
 
 
 def io_list_plans(month_str: str) -> list[dict]:
-    plans_dir = BASE_DIR / "plans" / month_str
-    if not plans_dir.exists():
-        return []
-    return [d for f in sorted(plans_dir.glob("*.json"))
-            if (d := _read_json(f)) is not None]
+    client = get_gsheet_client()
+    if client and CFG["sheet_id"]:
+        return _sheets_list(client, PLANS_SHEET, f"{month_str}/")
+    return _local_list(f"{month_str}_")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -737,20 +877,18 @@ def render_strategy(master: dict):
                     )
                 with col_del:
                     if st.button("削除", key=f"del_plan_{m}", type="secondary"):
-                        p = plan_path(month_str, m)
-                        if p.exists():
-                            p.unlink()
-                            st.toast(f"🗑️ {m} のデータを削除しました。", icon="🗑️")
-                            st.session_state.team_data = None
-                            st.rerun()
+                        io_delete_plan(month_str, m)
+                        st.toast(f"🗑️ {m} のデータを削除しました。", icon="🗑️")
+                        st.session_state.team_data = None
+                        st.rerun()
 
         st.markdown("---")
         st.markdown("**全データをまとめて削除する**")
         if st.button("🗑️ この月の全データを削除する", type="secondary", use_container_width=True):
-            plans_dir = BASE_DIR / "plans" / month_str
-            if plans_dir.exists():
-                import shutil
-                shutil.rmtree(plans_dir)
+            for plan in plans:
+                m_ = plan.get("member","")
+                if m_:
+                    io_delete_plan(month_str, m_)
             st.toast(f"🗑️ {month_label} の全データを削除しました。", icon="🗑️")
             st.session_state.team_data = None
             st.rerun()
@@ -840,6 +978,41 @@ def render_plan(master: dict):
             )
             st.markdown('<div class="g-info">KRに届かない<b>壁（課題）</b>を洗い出し、それぞれに対するアクションを設定してください。壁は最大3件まで追加できます。</div>', unsafe_allow_html=True)
 
+            # 壁の考え方ヒントボタン
+            if st.button("💡 壁（課題）の考え方ヒント", use_container_width=False):
+                st.session_state["show_issue_hint"] = True
+            if st.session_state.get("show_issue_hint"):
+                @st.dialog("💡 壁（課題）の考え方ヒント")
+                def issue_hint_dialog():
+                    st.markdown("### 壁とは何か？")
+                    st.markdown("「なぜ今月このKRに届いていないのか？」の**根本原因**です。表面的な現象ではなく、その奥にある原因を掘り下げてください。")
+                    st.markdown("---")
+                    st.markdown("### ✅ 良い壁の書き方")
+                    st.markdown("""
+**「〇〇が不足しているため、〜できていない」** の形で書くと論理が明確になります。
+
+- 「顧客インタビューがゼロのため、ペインが推測止まりになっており施策が的外れになっている」
+- 「提案資料に数字の根拠がなく、顧客が意思決定に踏み切れていない」
+- 「チュートリアルが長すぎて、新規ユーザーが離脱している」
+""")
+                    st.markdown("### ❌ 避けてほしい書き方")
+                    st.markdown("""
+- 「NPSが低い」← 現象を書いても意味がない。**なぜ**低いのかを書く
+- 「頑張る」← 壁ではなく意気込みになっている
+- 「時間がない」← 本当の原因をもう一段掘り下げる
+""")
+                    st.markdown("---")
+                    st.markdown("### 🔍 考えるための問いかけ")
+                    st.markdown("""
+1. **「なぜKRに届いていないのか？」** を5回繰り返してみる
+2. **「もし明日このKRを達成するとしたら、何が邪魔をしているか？」**
+3. **「チームの誰かに説明するとしたら、どう言うか？」**
+""")
+                    if st.button("閉じる", use_container_width=True):
+                        st.session_state["show_issue_hint"] = False
+                        st.rerun()
+                issue_hint_dialog()
+
             issues_to_delete = []
             for ii, iss in enumerate(issues):
                 with st.container(border=True):
@@ -861,18 +1034,55 @@ def render_plan(master: dict):
                         f"issue_{ii}",
                         value=iss.get("text",""),
                         height=75,
-                        placeholder="例）提案資料の訴求力が弱く、顧客の意思決定の後押しができていない",
+                        placeholder="例）〇〇が不足しているため、〜できていない",
                         label_visibility="collapsed",
                         key=f"issue_txt_{ii}",
                     )
 
                     # アクション行
-                    st.markdown(
-                        '<div style="font-size:10px;color:var(--color-text-secondary);'
-                        'margin:.5rem 0 .3rem;font-weight:500;padding-top:.5rem;'
-                        'border-top:0.5px solid var(--color-border-tertiary);">⚡ アクション</div>',
-                        unsafe_allow_html=True,
-                    )
+                    col_act_hdr, col_act_hint = st.columns([3, 2])
+                    with col_act_hdr:
+                        st.markdown(
+                            '<div style="font-size:10px;color:var(--color-text-secondary);'
+                            'margin:.5rem 0 .3rem;font-weight:500;padding-top:.5rem;'
+                            'border-top:0.5px solid var(--color-border-tertiary);">⚡ アクション</div>',
+                            unsafe_allow_html=True,
+                        )
+                    with col_act_hint:
+                        if st.button("💡 アクションのヒント", key=f"action_hint_{ii}"):
+                            st.session_state[f"show_action_hint_{ii}"] = True
+                    if st.session_state.get(f"show_action_hint_{ii}"):
+                        @st.dialog("💡 アクションの考え方ヒント")
+                        def action_hint_dialog():
+                            st.markdown("### 良いアクションの3条件")
+                            st.markdown("""
+**① いつまでに** ─ 期限が明確か？
+**② 何を** ─ 具体的な行動か？
+**③ どれだけ** ─ 件数・量が明確か？
+""")
+                            st.markdown("---")
+                            st.markdown("### ✅ 良いアクションの例")
+                            st.markdown("""
+- 「6/15までに顧客インタビューを**10件**実施し、結果をSlackで共有する」
+- 「6/30までに導入事例集を**3件**作成し、全商談で提示する」
+- 「6/20までに競合比較表を整備し、**営業資料に追加**する」
+""")
+                            st.markdown("### ❌ 避けてほしい書き方")
+                            st.markdown("""
+- 「顧客の声を聞く」← **いつ**？**何件**？
+- 「資料を改善する」← 何を、どのくらい改善するのか不明
+- 「頑張る」← アクションになっていない
+""")
+                            st.markdown("---")
+                            st.markdown("### 🔍 自己チェック")
+                            st.markdown("""
+月末に「できた / できなかった」を**○か✕で判定できるか？**
+判定できればOK。できなければもう少し具体的にしましょう。
+""")
+                            if st.button("閉じる", use_container_width=True):
+                                st.session_state[f"show_action_hint_{ii}"] = False
+                                st.rerun()
+                        action_hint_dialog()
 
                     actions = iss.get("actions", [blank_action()])
                     issues[ii]["actions"] = actions
