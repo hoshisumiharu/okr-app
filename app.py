@@ -1,3 +1,4 @@
+
 """
 OKR × 業務計画 統合管理アプリ  ─  app.py （ローカル保存版）
 =============================================================
@@ -810,9 +811,18 @@ def render_strategy(master: dict):
         while len(prev_krs) < 3:
             i = len(prev_krs)
             prev_krs.append({"id": f"kr{i+1}", "label": KR_LABELS[i], "text": "", "walls": []})
+
+        # 壁リストをsession_stateで管理（初回のみmasterから読み込む）
+        for i, kr in enumerate(prev_krs[:3]):
+            sk = f"strategy_walls_{i}"
+            if sk not in st.session_state:
+                walls = kr.get("walls", [])
+                st.session_state[sk] = walls if walls else [""]
+
         kr_texts = []
         kr_walls = []
         for i, kr in enumerate(prev_krs[:3]):
+            sk = f"strategy_walls_{i}"
             with st.container(border=True):
                 cc, ci = st.columns([0.12, 0.88])
                 with cc:
@@ -829,29 +839,27 @@ def render_strategy(master: dict):
                     f'margin-top:.5rem;margin-bottom:.3rem;">🔍 壁（課題）─ チームで合意した内容を入力</div>',
                     unsafe_allow_html=True,
                 )
-                prev_walls = kr.get("walls", [""])
-                if not prev_walls:
-                    prev_walls = [""]
                 walls_this_kr = []
-                for wi, wall_text in enumerate(prev_walls):
+                for wi in range(len(st.session_state[sk])):
                     wc, wd = st.columns([0.9, 0.1])
                     with wc:
                         w = st.text_input(
                             f"wall_{i}_{wi}",
-                            value=wall_text,
+                            value=st.session_state[sk][wi],
                             placeholder=f"壁{wi+1}：例）提案資料の訴求力が弱い",
                             label_visibility="collapsed",
                             key=f"strategy_wall_{i}_{wi}",
                         )
                         walls_this_kr.append(w)
+                        st.session_state[sk][wi] = w
                     with wd:
                         if wi > 0 and st.button("✕", key=f"del_wall_{i}_{wi}", help="削除"):
-                            prev_walls.pop(wi)
+                            st.session_state[sk].pop(wi)
                             st.rerun()
 
-                if len(prev_walls) < MAX_WALLS:
-                    if st.button(f"＋ 壁を追加", key=f"add_wall_{i}"):
-                        prev_walls.append("")
+                if len(st.session_state[sk]) < MAX_WALLS:
+                    if st.button("＋ 壁を追加", key=f"add_wall_{i}"):
+                        st.session_state[sk].append("")
                         st.rerun()
                 else:
                     st.caption(f"壁は最大 {MAX_WALLS} 件まで")
