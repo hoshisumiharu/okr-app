@@ -402,6 +402,26 @@ def io_list_plans(month_str: str) -> list[dict]:
     return _local_list(f"{month_str}_")
 
 
+PRIORITY_SHEET = "priorities"
+
+
+def io_get_priorities(month_str: str) -> dict:
+    """優先度データを取得。{action_key: "高"/"中"/"低"} の形式。"""
+    client = get_gsheet_client()
+    if client and CFG["sheet_id"]:
+        data = _sheets_get(client, PRIORITY_SHEET, month_str)
+        return data if data else {}
+    return _local_get(f"priorities_{month_str}") or {}
+
+
+def io_save_priorities(month_str: str, data: dict) -> bool:
+    """優先度データを保存。"""
+    client = get_gsheet_client()
+    if client and CFG["sheet_id"]:
+        return _sheets_set(client, PRIORITY_SHEET, month_str, data)
+    return _local_set(f"priorities_{month_str}", data)
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # ヘルパー
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1025,6 +1045,10 @@ def render_plan(master: dict):
             st.info(f"📋 {member} さんの今月のデータはまだありません。順番に入力していきましょう！")
 
     draft: dict = st.session_state[draft_key]
+
+    # 優先度データ読み込み（表示用）
+    priorities = io_get_priorities(month_str)
+
     render_progress(step)
 
     # ── STEP 0: KR選択 ────────────────────────────────────────────────────
@@ -1100,27 +1124,22 @@ def render_plan(master: dict):
             if st.session_state.get("show_action_hint_plan"):
                 @st.dialog("💡 アクションの考え方ヒント")
                 def action_hint_plan_dialog():
-                    st.markdown("### 良いアクションの3条件")
-                    st.markdown("""
-**① いつまでに** ─ 期限が明確か？
-**② 何を** ─ 具体的な行動か？
-**③ どれだけ** ─ 件数・量が明確か？
-""")
+                    st.markdown("### アクションとは？")
+                    st.markdown("この壁を乗り越えるために、**あなたが今月やること**を自由に書いてください。まずはアイデアをどんどん出しましょう。後でチームで優先順位をつけます。")
                     st.markdown("---")
-                    st.markdown("### ✅ 良いアクションの例")
+                    st.markdown("### ✅ 書き方の例")
                     st.markdown("""
-- 「6/15までに顧客インタビューを**10件**実施し、結果をSlackで共有する」
-- 「6/30までに導入事例集を**3件**作成し、全商談で提示する」
-- 「6/20までに競合比較表を整備し、**営業資料に追加**する」
+- 「顧客インタビューを実施する」
+- 「提案資料に導入事例を追加する」
+- 「競合比較表を作る」
+- 「6/15までにインタビュー10件実施してSlackで共有する」（より具体的でもOK）
 """)
-                    st.markdown("### ❌ 避けてほしい書き方")
+                    st.markdown("### 💡 ポイント")
                     st.markdown("""
-- 「顧客の声を聞く」← **いつ**？**何件**？
-- 「資料を改善する」← 何を、どのくらい改善するのか不明
+- 最初は気軽に書いてOKです
+- 日付や件数は後から追加・修正できます
+- チームで優先順位をつけてから具体化しましょう
 """)
-                    st.markdown("---")
-                    st.markdown("### 🔍 自己チェック")
-                    st.markdown("月末に「できた / できなかった」を**○か✕で判定できるか？**判定できればOKです。")
                     if st.button("閉じる", use_container_width=True):
                         st.session_state["show_action_hint_plan"] = False
                         st.rerun()
@@ -1144,11 +1163,11 @@ def render_plan(master: dict):
                     # アクション行
                     st.markdown(
                         '<div style="font-size:10px;color:var(--color-text-secondary);'
-                        'margin-bottom:.3rem;font-weight:500;">⚡ この壁に対するあなたのアクション</div>',
+                        'margin-bottom:.3rem;font-weight:500;">⚡ この壁に対するあなたのアクション（自由記述）</div>',
                         unsafe_allow_html=True,
                     )
 
-                    actions = wa.get("actions", [blank_action()])
+                    actions = wa.get("actions", [{"text": "", "start": "", "end": ""}])
                     wall_actions[ii]["actions"] = actions
                     actions_to_delete = []
 
@@ -1156,12 +1175,22 @@ def render_plan(master: dict):
                         with st.container(border=False):
                             col_ahdr, col_adel = st.columns([8, 1])
                             with col_ahdr:
+                                # 優先度バッジ
+                                ak  = f"{member}__{kr['id']}__{ii}__{ia}"
+                                pri = priorities.get(ak, "")
+                                pri_colors = {"高": "#E74C3C", "中": "#F39C12", "低": "#27AE60"}
+                                pri_badge  = (
+                                    f'<span style="background:{pri_colors[pri]};color:#fff;'
+                                    f'font-size:.65rem;font-weight:600;padding:1px 7px;'
+                                    f'border-radius:20px;margin-left:6px;">{pri}</span>'
+                                ) if pri in pri_colors else ""
                                 st.markdown(
                                     f'<div style="display:flex;align-items:center;gap:6px;'
                                     f'background:var(--color-background-secondary);border-radius:6px;padding:.3rem .5rem;">'
                                     f'<div style="width:18px;height:18px;border-radius:50%;background:{pal["main"]};'
                                     f'display:flex;align-items:center;justify-content:center;font-size:.62rem;font-weight:600;color:#fff;">A{ia+1}</div>'
-                                    f'<span style="font-size:.8rem;font-weight:500;color:var(--color-text-primary);">アクション {ia+1}</span></div>',
+                                    f'<span style="font-size:.8rem;font-weight:500;color:var(--color-text-primary);">アクション {ia+1}</span>'
+                                    f'{pri_badge}</div>',
                                     unsafe_allow_html=True,
                                 )
                             with col_adel:
@@ -1172,25 +1201,36 @@ def render_plan(master: dict):
                                 f"act_{ii}_{ia}",
                                 value=action.get("text",""),
                                 height=65,
-                                placeholder="例）6/15までにインタビューを10件実施し、結果をSlackで共有する",
+                                placeholder="例）顧客インタビューを実施する、提案資料に導入事例を追加する…",
                                 label_visibility="collapsed",
                                 key=f"act_txt_{ii}_{ia}",
                             )
-                            c1, c2 = st.columns(2)
-                            with c1:
-                                try:
-                                    sv = datetime.date.fromisoformat(action.get("start", datetime.date.today().isoformat()))
-                                except ValueError:
-                                    sv = datetime.date.today()
-                                actions[ia]["start"] = st.date_input("開始日", value=sv, key=f"start_{ii}_{ia}").isoformat()
-                            with c2:
-                                try:
-                                    ev = datetime.date.fromisoformat(action.get("end", (datetime.date.today()+datetime.timedelta(days=30)).isoformat()))
-                                except ValueError:
-                                    ev = datetime.date.today()+datetime.timedelta(days=30)
-                                actions[ia]["end"] = st.date_input("終了日", value=ev, key=f"end_{ii}_{ia}").isoformat()
-                            if actions[ia]["start"] > actions[ia]["end"]:
-                                st.error("⚠️ 終了日が開始日より前です。")
+
+                            # 日付は任意入力（チェックボックスで表示切り替え）
+                            use_date = st.checkbox(
+                                "日付を設定する（任意）",
+                                value=bool(action.get("start","")),
+                                key=f"use_date_{ii}_{ia}",
+                            )
+                            if use_date:
+                                c1, c2 = st.columns(2)
+                                with c1:
+                                    try:
+                                        sv = datetime.date.fromisoformat(action.get("start","") or datetime.date.today().isoformat())
+                                    except ValueError:
+                                        sv = datetime.date.today()
+                                    actions[ia]["start"] = st.date_input("開始日", value=sv, key=f"start_{ii}_{ia}").isoformat()
+                                with c2:
+                                    try:
+                                        ev = datetime.date.fromisoformat(action.get("end","") or (datetime.date.today()+datetime.timedelta(days=30)).isoformat())
+                                    except ValueError:
+                                        ev = datetime.date.today()+datetime.timedelta(days=30)
+                                    actions[ia]["end"] = st.date_input("終了日", value=ev, key=f"end_{ii}_{ia}").isoformat()
+                                if actions[ia].get("start","") and actions[ia].get("end","") and actions[ia]["start"] > actions[ia]["end"]:
+                                    st.error("⚠️ 終了日が開始日より前です。")
+                            else:
+                                actions[ia]["start"] = ""
+                                actions[ia]["end"]   = ""
 
                     for ia in sorted(actions_to_delete, reverse=True):
                         if len(actions) > 1:
@@ -1469,6 +1509,71 @@ def render_dashboard(master: dict):
                 f'{walls_html}</div>', unsafe_allow_html=True,
             )
         st.markdown("</div>", unsafe_allow_html=True)
+
+    # ── 優先度設定（管理者専用） ──────────────────────────────────────────
+    st.markdown("### 🎯 アクション優先度設定")
+    if not st.session_state.get("admin_auth"):
+        st.markdown('<div class="g-info">管理者ログイン後に優先度を設定できます。STRATEGYタブで認証してください。</div>', unsafe_allow_html=True)
+    else:
+        st.markdown('<div class="g-info">全メンバーのアクションを一覧で確認し、優先度（高・中・低）を設定してください。設定後「優先度を保存する」を押すとメンバーの画面にも反映されます。</div>', unsafe_allow_html=True)
+
+        # 優先度データ読み込み
+        if "priorities" not in st.session_state:
+            st.session_state.priorities = io_get_priorities(month_str)
+        priorities: dict = st.session_state.priorities
+
+        PRIORITY_OPTIONS = ["未設定", "高", "中", "低"]
+        PRIORITY_COLORS  = {"高": "#E74C3C", "中": "#F39C12", "低": "#27AE60", "未設定": "#95A5A6"}
+
+        changed = False
+        for plan in all_plans:
+            m   = plan.get("member","不明")
+            pal = mpal(m)
+            st.markdown(
+                f'<div style="font-size:.82rem;font-weight:600;color:var(--color-text-primary);'
+                f'margin:.7rem 0 .3rem;border-left:3px solid {pal["main"]};padding-left:.5rem;">{m}</div>',
+                unsafe_allow_html=True,
+            )
+            for item in plan.get("items",[]):
+                for ii, wa in enumerate(item.get("wall_actions",[])):
+                    for ia, a in enumerate(wa.get("actions",[])):
+                        if not a.get("text","").strip():
+                            continue
+                        # アクションの一意キー
+                        ak = f"{m}__{item['kr_id']}__{ii}__{ia}"
+                        current = priorities.get(ak, "未設定")
+
+                        col_action, col_wall, col_pri = st.columns([4, 3, 2])
+                        with col_action:
+                            st.markdown(
+                                f'<div style="font-size:.8rem;color:var(--color-text-primary);'
+                                f'padding:.35rem 0;">{a["text"]}</div>',
+                                unsafe_allow_html=True,
+                            )
+                        with col_wall:
+                            st.markdown(
+                                f'<div style="font-size:.72rem;color:#7D6608;padding:.35rem 0;">'
+                                f'壁{ii+1}：{wa["wall_text"][:25]}{"…" if len(wa["wall_text"])>25 else ""}</div>',
+                                unsafe_allow_html=True,
+                            )
+                        with col_pri:
+                            new_val = st.selectbox(
+                                "優先度",
+                                PRIORITY_OPTIONS,
+                                index=PRIORITY_OPTIONS.index(current),
+                                key=f"pri_{ak}",
+                                label_visibility="collapsed",
+                            )
+                            if new_val != current:
+                                priorities[ak] = new_val
+                                changed = True
+
+        st.markdown("")
+        if st.button("💾 優先度を保存する", type="primary", use_container_width=False):
+            if io_save_priorities(month_str, priorities):
+                st.session_state.priorities = priorities
+                st.toast("✅ 優先度を保存しました！", icon="🎯")
+                st.rerun()
 
     # ガントチャート
     st.markdown("### 📊 統合ガントチャート")
