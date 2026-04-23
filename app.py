@@ -1740,6 +1740,15 @@ def main():
         st.markdown(f"## 🌟 OKR管理\n**{team_name}**")
         st.markdown("---")
 
+        # 接続状況
+        client = get_gsheet_client()
+        if client and CFG.get("sheet_id"):
+            st.markdown('<div class="local-badge" style="background:#EAF7EE;border-color:#82E0AA;color:#196F3D;">✅ Sheets接続済み</div>', unsafe_allow_html=True)
+        elif CFG.get("sheet_id"):
+            st.markdown('<div class="local-badge" style="background:#FDEDEC;border-color:#F1948A;color:#922B21;">❌ Sheets接続失敗</div>', unsafe_allow_html=True)
+        else:
+            st.markdown('<div class="local-badge">⚙️ ローカル保存モード</div>', unsafe_allow_html=True)
+
         st.markdown("### 📌 あなたの名前")
         selected = st.selectbox("名前", MEMBERS,
             index=MEMBERS.index(st.session_state.cur_member) if st.session_state.cur_member in MEMBERS else 0,
