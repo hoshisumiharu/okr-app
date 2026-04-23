@@ -1,4 +1,3 @@
-
 """
 OKR × 業務計画 統合管理アプリ  ─  app.py （ローカル保存版）
 =============================================================
@@ -1008,14 +1007,22 @@ def render_plan(master: dict):
             )
             col_text, col_btn = st.columns([6, 1])
             with col_text:
-                walls_preview = "　".join(f"壁{wi+1}：{w[:15]}{'…' if len(w)>15 else ''}" for wi, w in enumerate(kr.get("walls",[])))
+                walls_list = "".join(
+                    f'<div style="display:flex;align-items:flex-start;gap:5px;margin-top:.2rem;">'
+                    f'<span style="font-size:.7rem;font-weight:600;color:#F39C12;flex-shrink:0;">壁{wi+1}</span>'
+                    f'<span style="font-size:.72rem;color:var(--color-text-secondary);line-height:1.4;">{w}</span>'
+                    f'</div>'
+                    for wi, w in enumerate(kr.get("walls",[]))
+                )
                 st.markdown(
                     f'<div style="background:{KR_COLORS[i]}18;border:1.5px solid {KR_COLORS[i]};'
                     f'border-radius:10px;padding:.65rem 1rem;margin-bottom:.4rem;">'
-                    f'<span style="background:{KR_COLORS[i]};color:#fff;font-size:.7rem;font-weight:700;padding:2px 8px;border-radius:20px;">{kr["label"]}</span>'
-                    f'<span style="font-size:.88rem;font-weight:500;color:{KR_COLORS[i]};margin-left:8px;">{kr["text"]}</span>'
-                    f'<span style="float:right;font-size:.72rem;color:{"#196F3D" if done else "#7F8C8D"};">{"✅ 入力済" if done else "⬜ 未入力"}</span>'
-                    f'<div style="font-size:.72rem;color:var(--color-text-secondary);margin-top:.25rem;">{walls_preview}</div>'
+                    f'<div style="display:flex;align-items:center;justify-content:space-between;">'
+                    f'<div><span style="background:{KR_COLORS[i]};color:#fff;font-size:.7rem;font-weight:700;padding:2px 8px;border-radius:20px;">{kr["label"]}</span>'
+                    f'<span style="font-size:.88rem;font-weight:500;color:{KR_COLORS[i]};margin-left:8px;">{kr["text"]}</span></div>'
+                    f'<span style="font-size:.72rem;color:{"#196F3D" if done else "#7F8C8D"};">{"✅ 入力済" if done else "⬜ 未入力"}</span>'
+                    f'</div>'
+                    f'{walls_list}'
                     f'</div>', unsafe_allow_html=True,
                 )
             with col_btn:
@@ -1087,13 +1094,14 @@ def render_plan(master: dict):
             # 壁ごとのアクション入力
             for ii, wa in enumerate(wall_actions):
                 with st.container(border=True):
-                    # 壁ラベル（読み取り専用）
+                    # 壁ラベル（読み取り専用・全文表示）
                     st.markdown(
-                        f'<div style="display:flex;align-items:center;gap:7px;margin-bottom:.6rem;'
-                        f'background:#FEF9E7;border-radius:8px;padding:.45rem .75rem;">'
+                        f'<div style="display:flex;align-items:flex-start;gap:7px;margin-bottom:.6rem;'
+                        f'background:#FEF9E7;border-radius:8px;padding:.55rem .75rem;">'
                         f'<div style="width:22px;height:22px;border-radius:50%;background:#F39C12;'
-                        f'display:flex;align-items:center;justify-content:center;font-size:.7rem;font-weight:600;color:#fff;">壁{ii+1}</div>'
-                        f'<span style="font-size:.85rem;font-weight:600;color:#7D6608;">{wa["wall_text"]}</span>'
+                        f'display:flex;align-items:center;justify-content:center;font-size:.7rem;'
+                        f'font-weight:600;color:#fff;flex-shrink:0;margin-top:1px;">壁{ii+1}</div>'
+                        f'<span style="font-size:.85rem;font-weight:600;color:#7D6608;line-height:1.5;">{wa["wall_text"]}</span>'
                         f'</div>',
                         unsafe_allow_html=True,
                     )
