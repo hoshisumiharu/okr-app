@@ -219,7 +219,6 @@ def get_gsheet_client():
     """gspreadクライアントを返す。未設定の場合はNone。"""
     try:
         creds_dict = dict(st.secrets["gcp"])
-        # private_key の改行を正規化
         if "private_key" in creds_dict:
             creds_dict["private_key"] = creds_dict["private_key"].replace("\\n", "\n")
         scopes = [
@@ -228,12 +227,10 @@ def get_gsheet_client():
         ]
         creds  = Credentials.from_service_account_info(creds_dict, scopes=scopes)
         client = gspread.authorize(creds)
-        # 接続テスト
-        client.open_by_key(CFG["sheet_id"])
+        client.open_by_key(dict(st.secrets["app"]).get("spreadsheet_id",""))
         return client
     except Exception as e:
-        st.session_state["gsheet_error"] = str(e)
-        return None
+        return f"ERROR:{e}"
 
 
 def _get_or_create_sheet(client, title: str):
@@ -359,8 +356,14 @@ def plan_key(month_str: str, member: str) -> str:
     return f"{month_str}/{safe}"
 
 
+def _valid_client():
+    """有効なgspreadクライアントを返す。エラーまたは未設定の場合はNone。"""
+    c = get_gsheet_client()
+    return c if c and not isinstance(c, str) else None
+
+
 def io_get_master() -> dict:
-    client = get_gsheet_client()
+    client = _valid_client()
     if client and CFG["sheet_id"]:
         data = _sheets_get(client, "master", MASTER_KEY)
         return data if data else DEFAULT_MASTER.copy()
@@ -368,14 +371,14 @@ def io_get_master() -> dict:
 
 
 def io_save_master(data: dict) -> bool:
-    client = get_gsheet_client()
+    client = _valid_client()
     if client and CFG["sheet_id"]:
         return _sheets_set(client, "master", MASTER_KEY, data)
     return _local_set(MASTER_KEY, data)
 
 
 def io_get_plan(month_str: str, member: str) -> dict | None:
-    client = get_gsheet_client()
+    client = _valid_client()
     key    = plan_key(month_str, member)
     if client and CFG["sheet_id"]:
         return _sheets_get(client, PLANS_SHEET, key)
@@ -383,7 +386,7 @@ def io_get_plan(month_str: str, member: str) -> dict | None:
 
 
 def io_save_plan(month_str: str, member: str, data: dict) -> bool:
-    client = get_gsheet_client()
+    client = _valid_client()
     key    = plan_key(month_str, member)
     if client and CFG["sheet_id"]:
         return _sheets_set(client, PLANS_SHEET, key, data)
@@ -391,7 +394,7 @@ def io_save_plan(month_str: str, member: str, data: dict) -> bool:
 
 
 def io_delete_plan(month_str: str, member: str) -> bool:
-    client = get_gsheet_client()
+    client = _valid_client()
     key    = plan_key(month_str, member)
     if client and CFG["sheet_id"]:
         return _sheets_delete(client, PLANS_SHEET, key)
@@ -399,7 +402,7 @@ def io_delete_plan(month_str: str, member: str) -> bool:
 
 
 def io_list_plans(month_str: str) -> list[dict]:
-    client = get_gsheet_client()
+    client = _valid_client()
     if client and CFG["sheet_id"]:
         return _sheets_list(client, PLANS_SHEET, f"{month_str}/")
     return _local_list(f"{month_str}_")
@@ -409,8 +412,7 @@ PRIORITY_SHEET = "priorities"
 
 
 def io_get_priorities(month_str: str) -> dict:
-    """優先度データを取得。{action_key: "高"/"中"/"低"} の形式。"""
-    client = get_gsheet_client()
+    client = _valid_client()
     if client and CFG["sheet_id"]:
         data = _sheets_get(client, PRIORITY_SHEET, month_str)
         return data if data else {}
@@ -418,8 +420,7 @@ def io_get_priorities(month_str: str) -> dict:
 
 
 def io_save_priorities(month_str: str, data: dict) -> bool:
-    """優先度データを保存。"""
-    client = get_gsheet_client()
+    client = _valid_client()
     if client and CFG["sheet_id"]:
         return _sheets_set(client, PRIORITY_SHEET, month_str, data)
     return _local_set(f"priorities_{month_str}", data)
@@ -1744,14 +1745,12 @@ def main():
         st.markdown("---")
 
         # 接続状況
-        client = get_gsheet_client()
-        if client and CFG.get("sheet_id"):
-            st.markdown('<div class="local-badge" style="background:#EAF7EE;border-color:#82E0AA;color:#196F3D;">✅ Sheets接続済み</div>', unsafe_allow_html=True)
-        elif CFG.get("sheet_id"):
+        _client = get_gsheet_client()
+        if isinstance(_client, str) and _client.startswith("ERROR:"):
             st.markdown('<div class="local-badge" style="background:#FDEDEC;border-color:#F1948A;color:#922B21;">❌ Sheets接続失敗</div>', unsafe_allow_html=True)
-            err = st.session_state.get("gsheet_error","")
-            if err:
-                st.caption(f"エラー：{err[:120]}")
+            st.caption(_client[6:120])
+        elif _client and CFG.get("sheet_id"):
+            st.markdown('<div class="local-badge" style="background:#EAF7EE;border-color:#82E0AA;color:#196F3D;">✅ Sheets接続済み</div>', unsafe_allow_html=True)
         else:
             st.markdown('<div class="local-badge">⚙️ ローカル保存モード</div>', unsafe_allow_html=True)
 
