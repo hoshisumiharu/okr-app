@@ -806,6 +806,41 @@ def render_strategy(master: dict):
     with st.container(border=True):
         st.markdown("**📏 Key Results と 壁（課題）**　─　KRごとにチームで合意した壁を設定してください")
         st.markdown('<div class="g-info">KRは「Objectiveが達成された証拠」。壁は「チームで議論したKRに届かない理由」です。各メンバーはこの壁に対するアクションを考えます。</div>', unsafe_allow_html=True)
+
+        # 壁の考え方ヒント
+        if st.button("💡 壁（課題）の考え方ヒント", use_container_width=False):
+            st.session_state["show_wall_hint"] = True
+        if st.session_state.get("show_wall_hint"):
+            @st.dialog("💡 壁（課題）の考え方ヒント")
+            def wall_hint_dialog():
+                st.markdown("### 壁とは何か？")
+                st.markdown("「なぜ今月このKRに届いていないのか？」の**根本原因**です。表面的な現象ではなく、その奥にある原因を掘り下げてください。")
+                st.markdown("---")
+                st.markdown("### ✅ 良い壁の書き方")
+                st.markdown("""
+**「〇〇が不足しているため、〜できていない」** の形で書くと論理が明確になります。
+
+- 「顧客インタビューがゼロのため、ペインが推測止まりになっており施策が的外れになっている」
+- 「提案資料に数字の根拠がなく、顧客が意思決定に踏み切れていない」
+- 「チュートリアルが長すぎて、新規ユーザーが離脱している」
+""")
+                st.markdown("### ❌ 避けてほしい書き方")
+                st.markdown("""
+- 「NPSが低い」← 現象を書いても意味がない。**なぜ**低いのかを書く
+- 「頑張る」← 壁ではなく意気込みになっている
+- 「時間がない」← 本当の原因をもう一段掘り下げる
+""")
+                st.markdown("---")
+                st.markdown("### 🔍 考えるための問いかけ")
+                st.markdown("""
+1. **「なぜKRに届いていないのか？」** を5回繰り返してみる
+2. **「もし明日このKRを達成するとしたら、何が邪魔をしているか？」**
+3. **「チームの誰かに説明するとしたら、どう言うか？」**
+""")
+                if st.button("閉じる", use_container_width=True):
+                    st.session_state["show_wall_hint"] = False
+                    st.rerun()
+            wall_hint_dialog()
         prev_krs = master.get("key_results", [{"id": f"kr{i+1}", "label": KR_LABELS[i], "text": "", "walls": []} for i in range(3)])
         while len(prev_krs) < 3:
             i = len(prev_krs)
