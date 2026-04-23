@@ -61,6 +61,7 @@ PALETTE: list[dict] = [
 KR_COLORS   = ["#1B4F72", "#1D6A45", "#6C3483"]
 KR_LABELS   = ["KR①", "KR②", "KR③"]
 MAX_ACTIONS = 5
+MAX_WALLS   = 3
 
 DEFAULT_MASTER: dict = {
     "quarter":     "2025-Q2",
@@ -68,9 +69,9 @@ DEFAULT_MASTER: dict = {
     "locked":      False,
     "set_at":      "",
     "key_results": [
-        {"id": "kr1", "label": "KR①", "text": ""},
-        {"id": "kr2", "label": "KR②", "text": ""},
-        {"id": "kr3", "label": "KR③", "text": ""},
+        {"id": "kr1", "label": "KR①", "text": "", "walls": []},
+        {"id": "kr2", "label": "KR②", "text": "", "walls": []},
+        {"id": "kr3", "label": "KR③", "text": "", "walls": []},
     ],
 }
 
@@ -421,21 +422,23 @@ def blank_action() -> dict:
             "end": (today + datetime.timedelta(days=30)).isoformat()}
 
 
-def blank_issue() -> dict:
-    """空の壁（課題）を1件返す。アクションを1件含む。"""
-    return {"text": "", "actions": [blank_action()]}
+def blank_wall_actions(walls: list[str]) -> list[dict]:
+    """壁リストに対応した空のアクション辞書を返す。
+    [{wall_text, actions:[{text,start,end}]}]
+    """
+    return [{"wall_text": w, "actions": [blank_action()]} for w in walls]
 
 
 def _init_session():
     today = datetime.date.today()
     for k, v in dict(
-        cur_member  = MEMBERS[0],
-        month_str   = today.strftime("%Y-%m"),
-        plan_step   = 0,
-        plan_kr_idx = 0,
-        plan_issues = [blank_issue()],   # [{text, actions:[{text,start,end}]}]
-        admin_auth  = False,
-        team_data   = None,
+        cur_member   = MEMBERS[0],
+        month_str    = today.strftime("%Y-%m"),
+        plan_step    = 0,
+        plan_kr_idx  = 0,
+        plan_actions = [],   # [{wall_text, actions:[{text,start,end}]}]
+        admin_auth   = False,
+        team_data    = None,
     ).items():
         if k not in st.session_state:
             st.session_state[k] = v
@@ -491,16 +494,15 @@ def render_progress(step: int):
 # ══════════════════════════════════════════════════════════════════════════════
 
 def render_logic_tree(master: dict, kr_idx: int,
-                      issues: list[dict], pal: dict):
-    """issues = [{text, actions:[{text,start,end}]}]"""
+                      wall_actions: list[dict], pal: dict):
+    """wall_actions = [{wall_text, actions:[{text,start,end}]}]"""
     krs = master.get("key_results", [])
     kr  = krs[kr_idx] if kr_idx < len(krs) else {}
 
-    filled_issues = [iss for iss in issues if iss.get("text","").strip()]
-    if filled_issues:
-        issues_html = ""
-        for ii, iss in enumerate(filled_issues):
-            filled_actions = [a for a in iss.get("actions",[]) if a.get("text","").strip()]
+    if wall_actions:
+        walls_html = ""
+        for ii, wa in enumerate(wall_actions):
+            filled_actions = [a for a in wa.get("actions",[]) if a.get("text","").strip()]
             actions_html = "".join(
                 f'<div class="lt-indent" style="margin-top:.3rem;">'
                 f'<div class="lt-row">'
@@ -515,17 +517,17 @@ def render_logic_tree(master: dict, kr_idx: int,
                 f'<div class="lt-body lt-empty">アクションを入力してください</div>'
                 f'</div></div>'
             )
-            issues_html += (
+            walls_html += (
                 f'<div class="lt-row" style="margin-top:.35rem;">'
                 f'<div class="lt-ico" style="background:#F39C12;">壁{ii+1}</div>'
-                f'<div class="lt-body" style="font-weight:600;">{iss["text"]}</div>'
+                f'<div class="lt-body" style="font-weight:600;">{wa["wall_text"]}</div>'
                 f'</div>{actions_html}'
             )
     else:
-        issues_html = (
+        walls_html = (
             '<div class="lt-row" style="margin-top:.35rem;">'
             '<div class="lt-ico" style="background:#F39C12;">壁</div>'
-            '<div class="lt-body lt-empty">壁を入力すると表示されます</div>'
+            '<div class="lt-body lt-empty">KRを選ぶと壁が表示されます</div>'
             '</div>'
         )
 
@@ -536,7 +538,7 @@ def render_logic_tree(master: dict, kr_idx: int,
     <div class="lt-ico" style="background:#1B4F72;">KR</div>
     <div class="lt-body" style="font-weight:700;">{kr.get("label","KR")}：{kr.get("text","")}</div>
   </div>
-  <div class="lt-indent">{issues_html}</div>
+  <div class="lt-indent">{walls_html}</div>
 </div>
 """, unsafe_allow_html=True)
 
@@ -802,22 +804,59 @@ def render_strategy(master: dict):
             st.markdown("</div>", unsafe_allow_html=True)
 
     with st.container(border=True):
-        st.markdown("**📏 Key Results（達成を測る3つの指標）**　─　月末に○か✕かが判定できる数値で")
-        st.markdown('<div class="g-info">KRは「Objectiveが達成された証拠」です。70〜80%達成が理想的な難易度です。</div>', unsafe_allow_html=True)
-        prev_krs = master.get("key_results", [{"id": f"kr{i+1}", "label": KR_LABELS[i], "text": ""} for i in range(3)])
+        st.markdown("**📏 Key Results と 壁（課題）**　─　KRごとにチームで合意した壁を設定してください")
+        st.markdown('<div class="g-info">KRは「Objectiveが達成された証拠」。壁は「チームで議論したKRに届かない理由」です。各メンバーはこの壁に対するアクションを考えます。</div>', unsafe_allow_html=True)
+        prev_krs = master.get("key_results", [{"id": f"kr{i+1}", "label": KR_LABELS[i], "text": "", "walls": []} for i in range(3)])
         while len(prev_krs) < 3:
             i = len(prev_krs)
-            prev_krs.append({"id": f"kr{i+1}", "label": KR_LABELS[i], "text": ""})
+            prev_krs.append({"id": f"kr{i+1}", "label": KR_LABELS[i], "text": "", "walls": []})
         kr_texts = []
+        kr_walls = []
         for i, kr in enumerate(prev_krs[:3]):
-            cc, ci = st.columns([0.12, 0.88])
-            with cc:
-                st.markdown(f'<div style="background:{KR_COLORS[i]};color:#fff;font-size:.75rem;font-weight:600;border-radius:20px;padding:5px 8px;text-align:center;margin-top:6px;">{KR_LABELS[i]}</div>', unsafe_allow_html=True)
-            with ci:
-                val = st.text_input(f"KR{i+1}", value=kr.get("text",""),
-                    placeholder="例）月次NPSを 40 以上に引き上げる",
-                    key=f"strategy_kr_{i}", label_visibility="collapsed")
-            kr_texts.append(val)
+            with st.container(border=True):
+                cc, ci = st.columns([0.12, 0.88])
+                with cc:
+                    st.markdown(f'<div style="background:{KR_COLORS[i]};color:#fff;font-size:.75rem;font-weight:600;border-radius:20px;padding:5px 8px;text-align:center;margin-top:6px;">{KR_LABELS[i]}</div>', unsafe_allow_html=True)
+                with ci:
+                    val = st.text_input(f"KR{i+1}", value=kr.get("text",""),
+                        placeholder="例）月次NPSを 40 以上に引き上げる",
+                        key=f"strategy_kr_{i}", label_visibility="collapsed")
+                kr_texts.append(val)
+
+                # 壁の入力
+                st.markdown(
+                    f'<div style="font-size:.75rem;font-weight:500;color:#F39C12;'
+                    f'margin-top:.5rem;margin-bottom:.3rem;">🔍 壁（課題）─ チームで合意した内容を入力</div>',
+                    unsafe_allow_html=True,
+                )
+                prev_walls = kr.get("walls", [""])
+                if not prev_walls:
+                    prev_walls = [""]
+                walls_this_kr = []
+                for wi, wall_text in enumerate(prev_walls):
+                    wc, wd = st.columns([0.9, 0.1])
+                    with wc:
+                        w = st.text_input(
+                            f"wall_{i}_{wi}",
+                            value=wall_text,
+                            placeholder=f"壁{wi+1}：例）提案資料の訴求力が弱い",
+                            label_visibility="collapsed",
+                            key=f"strategy_wall_{i}_{wi}",
+                        )
+                        walls_this_kr.append(w)
+                    with wd:
+                        if wi > 0 and st.button("✕", key=f"del_wall_{i}_{wi}", help="削除"):
+                            prev_walls.pop(wi)
+                            st.rerun()
+
+                if len(prev_walls) < MAX_WALLS:
+                    if st.button(f"＋ 壁を追加", key=f"add_wall_{i}"):
+                        prev_walls.append("")
+                        st.rerun()
+                else:
+                    st.caption(f"壁は最大 {MAX_WALLS} 件まで")
+
+                kr_walls.append([w for w in walls_this_kr if w.strip()])
 
     st.markdown("---")
     st.markdown('<div class="g-warn">⚠️ 「確定保存」を押すとOKRがロックされます。全員が納得した上で押してください。</div>', unsafe_allow_html=True)
@@ -833,6 +872,8 @@ def render_strategy(master: dict):
             st.error("Objectiveを入力してください。")
         elif not any(t.strip() for t in kr_texts):
             st.error("KRを1つ以上入力してください。")
+        elif any(t.strip() and not walls for t, walls in zip(kr_texts, kr_walls)):
+            st.error("KRが入力されているものには壁を1つ以上設定してください。")
         else:
             payload = dict(
                 quarter    = quarter.strip(),
@@ -840,7 +881,8 @@ def render_strategy(master: dict):
                 locked     = True,
                 set_at     = datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
                 key_results= [
-                    {"id": f"kr{i+1}", "label": KR_LABELS[i], "text": t.strip()}
+                    {"id": f"kr{i+1}", "label": KR_LABELS[i],
+                     "text": t.strip(), "walls": kr_walls[i]}
                     for i, t in enumerate(kr_texts) if t.strip()
                 ],
             )
@@ -910,20 +952,30 @@ def render_plan(master: dict):
         st.warning("OKRがまだ設定されていません。先に「STRATEGY」タブで四半期OKRを確定してください。")
         return
 
+    if not any(kr.get("walls") for kr in krs):
+        st.warning("壁がまだ設定されていません。先に「STRATEGY」タブでKRごとの壁を設定してください。")
+        return
+
     draft_key = f"draft_{month_str}_{member}"
     if draft_key not in st.session_state:
         saved = io_get_plan(month_str, member)
         if saved:
-            # 旧フォーマット（issue + actions）を新フォーマット（issues）に変換
             loaded = {}
             for item in saved.get("items", []):
-                if "issues" in item:
-                    loaded[item["kr_id"]] = {"issues": item["issues"]}
-                else:
-                    # 旧データ互換
-                    loaded[item["kr_id"]] = {"issues": [
-                        {"text": item.get("issue",""), "actions": item.get("actions",[blank_action()])}
-                    ]}
+                # 新フォーマット（wall_actions）
+                if "wall_actions" in item:
+                    loaded[item["kr_id"]] = {"wall_actions": item["wall_actions"]}
+                # 旧フォーマット互換（issues → wall_actions に変換）
+                elif "issues" in item:
+                    kr_walls = next((kr.get("walls",[]) for kr in krs if kr["id"]==item["kr_id"]), [])
+                    wall_actions = []
+                    for wi, wall_text in enumerate(kr_walls):
+                        old_iss = item["issues"][wi] if wi < len(item["issues"]) else {}
+                        wall_actions.append({
+                            "wall_text": wall_text,
+                            "actions":   old_iss.get("actions", [blank_action()]),
+                        })
+                    loaded[item["kr_id"]] = {"wall_actions": wall_actions}
             st.session_state[draft_key] = loaded
             st.success(f"✅ 前回保存（{saved.get('saved_at','')}）を読み込みました。")
         else:
@@ -938,34 +990,48 @@ def render_plan(master: dict):
         st.markdown('<div class="g-info">「今月最も重要なKRはどれですか？」全部やろうとせず、今月最も差が生まれるKRを選びましょう。</div>', unsafe_allow_html=True)
         st.markdown("")
         for i, kr in enumerate(krs):
-            kd     = draft.get(kr["id"], {})
-            issues = kd.get("issues", [])
-            done   = any(
-                iss.get("text","").strip() and
-                any(a.get("text","").strip() for a in iss.get("actions",[]))
-                for iss in issues
+            if not kr.get("walls"):
+                continue
+            kd          = draft.get(kr["id"], {})
+            wall_actions = kd.get("wall_actions", [])
+            done = any(
+                any(a.get("text","").strip() for a in wa.get("actions",[]))
+                for wa in wall_actions
             )
             col_text, col_btn = st.columns([6, 1])
             with col_text:
+                walls_preview = "　".join(f"壁{wi+1}：{w[:15]}{'…' if len(w)>15 else ''}" for wi, w in enumerate(kr.get("walls",[])))
                 st.markdown(
                     f'<div style="background:{KR_COLORS[i]}18;border:1.5px solid {KR_COLORS[i]};'
                     f'border-radius:10px;padding:.65rem 1rem;margin-bottom:.4rem;">'
                     f'<span style="background:{KR_COLORS[i]};color:#fff;font-size:.7rem;font-weight:700;padding:2px 8px;border-radius:20px;">{kr["label"]}</span>'
                     f'<span style="font-size:.88rem;font-weight:500;color:{KR_COLORS[i]};margin-left:8px;">{kr["text"]}</span>'
                     f'<span style="float:right;font-size:.72rem;color:{"#196F3D" if done else "#7F8C8D"};">{"✅ 入力済" if done else "⬜ 未入力"}</span>'
+                    f'<div style="font-size:.72rem;color:var(--color-text-secondary);margin-top:.25rem;">{walls_preview}</div>'
                     f'</div>', unsafe_allow_html=True,
                 )
             with col_btn:
                 if st.button("選ぶ", key=f"sel_kr_{i}", use_container_width=True):
                     st.session_state.plan_kr_idx = i
-                    st.session_state.plan_issues = kd.get("issues", [blank_issue()])
-                    st.session_state.plan_step   = 1
+                    # 壁リストからwall_actionsを初期化（保存済みがあればそれを使う）
+                    walls = kr.get("walls", [])
+                    saved_wa = kd.get("wall_actions", [])
+                    # 壁の数が変わった場合にも対応
+                    merged = []
+                    for wi, wall_text in enumerate(walls):
+                        existing = next((wa for wa in saved_wa if wa.get("wall_text")==wall_text), None)
+                        if existing:
+                            merged.append(existing)
+                        else:
+                            merged.append({"wall_text": wall_text, "actions": [blank_action()]})
+                    st.session_state.plan_actions = merged
+                    st.session_state.plan_step    = 1
                     st.rerun()
 
-    # ── STEP 1: 壁（課題）＋アクション入力 ───────────────────────────────
+    # ── STEP 1: アクション入力 ────────────────────────────────────────────
     elif step == 1:
-        kr     = krs[kr_idx]
-        issues = st.session_state.plan_issues   # [{text, actions:[{text,start,end}]}]
+        kr          = krs[kr_idx]
+        wall_actions = st.session_state.plan_actions  # [{wall_text, actions:[{text,start,end}]}]
 
         col_form, col_tree = st.columns([3, 2], gap="medium")
 
@@ -976,116 +1042,63 @@ def render_plan(master: dict):
                 f'margin-bottom:.85rem;color:{KR_COLORS[kr_idx]};">{kr["label"]}：{kr["text"]}</div>',
                 unsafe_allow_html=True,
             )
-            st.markdown('<div class="g-info">KRに届かない<b>壁（課題）</b>を洗い出し、それぞれに対するアクションを設定してください。壁は最大3件まで追加できます。</div>', unsafe_allow_html=True)
+            st.markdown('<div class="g-info">チームで合意した<b>壁（課題）</b>ごとに、あなたが今月やり切るアクションを設定してください。</div>', unsafe_allow_html=True)
 
-            # 壁の考え方ヒントボタン
-            if st.button("💡 壁（課題）の考え方ヒント", use_container_width=False):
-                st.session_state["show_issue_hint"] = True
-            if st.session_state.get("show_issue_hint"):
-                @st.dialog("💡 壁（課題）の考え方ヒント")
-                def issue_hint_dialog():
-                    st.markdown("### 壁とは何か？")
-                    st.markdown("「なぜ今月このKRに届いていないのか？」の**根本原因**です。表面的な現象ではなく、その奥にある原因を掘り下げてください。")
-                    st.markdown("---")
-                    st.markdown("### ✅ 良い壁の書き方")
+            # アクションヒントボタン
+            if st.button("💡 アクションの考え方ヒント", use_container_width=False):
+                st.session_state["show_action_hint_plan"] = True
+            if st.session_state.get("show_action_hint_plan"):
+                @st.dialog("💡 アクションの考え方ヒント")
+                def action_hint_plan_dialog():
+                    st.markdown("### 良いアクションの3条件")
                     st.markdown("""
-**「〇〇が不足しているため、〜できていない」** の形で書くと論理が明確になります。
-
-- 「顧客インタビューがゼロのため、ペインが推測止まりになっており施策が的外れになっている」
-- 「提案資料に数字の根拠がなく、顧客が意思決定に踏み切れていない」
-- 「チュートリアルが長すぎて、新規ユーザーが離脱している」
-""")
-                    st.markdown("### ❌ 避けてほしい書き方")
-                    st.markdown("""
-- 「NPSが低い」← 現象を書いても意味がない。**なぜ**低いのかを書く
-- 「頑張る」← 壁ではなく意気込みになっている
-- 「時間がない」← 本当の原因をもう一段掘り下げる
-""")
-                    st.markdown("---")
-                    st.markdown("### 🔍 考えるための問いかけ")
-                    st.markdown("""
-1. **「なぜKRに届いていないのか？」** を5回繰り返してみる
-2. **「もし明日このKRを達成するとしたら、何が邪魔をしているか？」**
-3. **「チームの誰かに説明するとしたら、どう言うか？」**
-""")
-                    if st.button("閉じる", use_container_width=True):
-                        st.session_state["show_issue_hint"] = False
-                        st.rerun()
-                issue_hint_dialog()
-
-            issues_to_delete = []
-            for ii, iss in enumerate(issues):
-                with st.container(border=True):
-                    # 壁ヘッダー
-                    col_hdr, col_del = st.columns([8, 1])
-                    with col_hdr:
-                        st.markdown(
-                            f'<div style="display:flex;align-items:center;gap:7px;margin-bottom:.3rem;">'
-                            f'<div style="width:22px;height:22px;border-radius:50%;background:#F39C12;'
-                            f'display:flex;align-items:center;justify-content:center;font-size:.7rem;font-weight:600;color:#fff;">壁{ii+1}</div>'
-                            f'<span style="font-size:.85rem;font-weight:600;color:var(--color-text-primary);">壁（課題） {ii+1}</span></div>',
-                            unsafe_allow_html=True,
-                        )
-                    with col_del:
-                        if st.button("🗑", key=f"del_issue_{ii}", help="この壁を削除"):
-                            issues_to_delete.append(ii)
-
-                    issues[ii]["text"] = st.text_area(
-                        f"issue_{ii}",
-                        value=iss.get("text",""),
-                        height=75,
-                        placeholder="例）〇〇が不足しているため、〜できていない",
-                        label_visibility="collapsed",
-                        key=f"issue_txt_{ii}",
-                    )
-
-                    # アクション行
-                    col_act_hdr, col_act_hint = st.columns([3, 2])
-                    with col_act_hdr:
-                        st.markdown(
-                            '<div style="font-size:10px;color:var(--color-text-secondary);'
-                            'margin:.5rem 0 .3rem;font-weight:500;padding-top:.5rem;'
-                            'border-top:0.5px solid var(--color-border-tertiary);">⚡ アクション</div>',
-                            unsafe_allow_html=True,
-                        )
-                    with col_act_hint:
-                        if st.button("💡 アクションのヒント", key=f"action_hint_{ii}"):
-                            st.session_state[f"show_action_hint_{ii}"] = True
-                    if st.session_state.get(f"show_action_hint_{ii}"):
-                        @st.dialog("💡 アクションの考え方ヒント")
-                        def action_hint_dialog():
-                            st.markdown("### 良いアクションの3条件")
-                            st.markdown("""
 **① いつまでに** ─ 期限が明確か？
 **② 何を** ─ 具体的な行動か？
 **③ どれだけ** ─ 件数・量が明確か？
 """)
-                            st.markdown("---")
-                            st.markdown("### ✅ 良いアクションの例")
-                            st.markdown("""
+                    st.markdown("---")
+                    st.markdown("### ✅ 良いアクションの例")
+                    st.markdown("""
 - 「6/15までに顧客インタビューを**10件**実施し、結果をSlackで共有する」
 - 「6/30までに導入事例集を**3件**作成し、全商談で提示する」
 - 「6/20までに競合比較表を整備し、**営業資料に追加**する」
 """)
-                            st.markdown("### ❌ 避けてほしい書き方")
-                            st.markdown("""
+                    st.markdown("### ❌ 避けてほしい書き方")
+                    st.markdown("""
 - 「顧客の声を聞く」← **いつ**？**何件**？
 - 「資料を改善する」← 何を、どのくらい改善するのか不明
-- 「頑張る」← アクションになっていない
 """)
-                            st.markdown("---")
-                            st.markdown("### 🔍 自己チェック")
-                            st.markdown("""
-月末に「できた / できなかった」を**○か✕で判定できるか？**
-判定できればOK。できなければもう少し具体的にしましょう。
-""")
-                            if st.button("閉じる", use_container_width=True):
-                                st.session_state[f"show_action_hint_{ii}"] = False
-                                st.rerun()
-                        action_hint_dialog()
+                    st.markdown("---")
+                    st.markdown("### 🔍 自己チェック")
+                    st.markdown("月末に「できた / できなかった」を**○か✕で判定できるか？**判定できればOKです。")
+                    if st.button("閉じる", use_container_width=True):
+                        st.session_state["show_action_hint_plan"] = False
+                        st.rerun()
+                action_hint_plan_dialog()
 
-                    actions = iss.get("actions", [blank_action()])
-                    issues[ii]["actions"] = actions
+            # 壁ごとのアクション入力
+            for ii, wa in enumerate(wall_actions):
+                with st.container(border=True):
+                    # 壁ラベル（読み取り専用）
+                    st.markdown(
+                        f'<div style="display:flex;align-items:center;gap:7px;margin-bottom:.6rem;'
+                        f'background:#FEF9E7;border-radius:8px;padding:.45rem .75rem;">'
+                        f'<div style="width:22px;height:22px;border-radius:50%;background:#F39C12;'
+                        f'display:flex;align-items:center;justify-content:center;font-size:.7rem;font-weight:600;color:#fff;">壁{ii+1}</div>'
+                        f'<span style="font-size:.85rem;font-weight:600;color:#7D6608;">{wa["wall_text"]}</span>'
+                        f'</div>',
+                        unsafe_allow_html=True,
+                    )
+
+                    # アクション行
+                    st.markdown(
+                        '<div style="font-size:10px;color:var(--color-text-secondary);'
+                        'margin-bottom:.3rem;font-weight:500;">⚡ この壁に対するあなたのアクション</div>',
+                        unsafe_allow_html=True,
+                    )
+
+                    actions = wa.get("actions", [blank_action()])
+                    wall_actions[ii]["actions"] = actions
                     actions_to_delete = []
 
                     for ia, action in enumerate(actions):
@@ -1142,22 +1155,6 @@ def render_plan(master: dict):
                     else:
                         st.caption(f"アクションは最大 {MAX_ACTIONS} 件まで")
 
-            # 壁削除処理
-            for ii in sorted(issues_to_delete, reverse=True):
-                if len(issues) > 1:
-                    issues.pop(ii)
-                else:
-                    st.warning("壁は最低1件必要です。")
-            if issues_to_delete:
-                st.rerun()
-
-            # 壁追加ボタン
-            if len(issues) < 3:
-                if st.button("＋ 壁（課題）を追加する", use_container_width=True):
-                    issues.append(blank_issue()); st.rerun()
-            else:
-                st.caption("壁は最大3件まで追加できます。")
-
             st.markdown("---")
             c_back, c_other, c_save = st.columns([1, 1.5, 2])
             with c_back:
@@ -1165,76 +1162,68 @@ def render_plan(master: dict):
                     st.session_state.plan_step = 0; st.rerun()
             with c_other:
                 if st.button("別のKRも入力する", use_container_width=True):
-                    draft[krs[kr_idx]["id"]] = {"issues": issues}
+                    draft[krs[kr_idx]["id"]] = {"wall_actions": wall_actions}
                     st.session_state.plan_step = 0; st.rerun()
             with c_save:
                 has_valid = any(
-                    iss.get("text","").strip() and
-                    any(a.get("text","").strip() for a in iss.get("actions",[]))
-                    for iss in issues
+                    any(a.get("text","").strip() for a in wa.get("actions",[]))
+                    for wa in wall_actions
                 )
                 if st.button("💾 保存する", type="primary",
                              use_container_width=True, disabled=not has_valid):
-                    draft[krs[kr_idx]["id"]] = {"issues": issues}
+                    draft[krs[kr_idx]["id"]] = {"wall_actions": wall_actions}
                     payload = dict(
                         member   = member,
                         month    = month_str,
                         saved_at = datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
                         items    = [
                             dict(
-                                kr_id    = kr_["id"],
-                                kr_label = kr_["label"],
-                                kr_text  = kr_["text"],
-                                issues   = [
+                                kr_id       = kr_["id"],
+                                kr_label    = kr_["label"],
+                                kr_text     = kr_["text"],
+                                wall_actions= [
                                     {
-                                        "text":    iss.get("text",""),
-                                        "actions": [
+                                        "wall_text": wa.get("wall_text",""),
+                                        "actions":   [
                                             {"text": a.get("text",""), "start": a.get("start",""), "end": a.get("end","")}
-                                            for a in iss.get("actions",[]) if a.get("text","").strip()
+                                            for a in wa.get("actions",[]) if a.get("text","").strip()
                                         ],
                                     }
-                                    for iss in draft.get(kr_["id"],{}).get("issues",[])
-                                    if iss.get("text","").strip()
+                                    for wa in draft.get(kr_["id"],{}).get("wall_actions",[])
                                 ],
                             )
                             for kr_ in krs
-                            if draft.get(kr_["id"],{}).get("issues")
+                            if draft.get(kr_["id"],{}).get("wall_actions")
                         ],
                     )
                     if io_save_plan(month_str, member, payload):
                         st.toast(f"✅ {member} さんのプランを保存しました！", icon="🎉")
                         st.session_state["show_backlog_dialog"] = True
-                        st.session_state["backlog_krs"]    = krs
-                        st.session_state["backlog_draft"]  = draft
-                        st.session_state["backlog_member"] = member
-                        st.session_state["backlog_draft_key"] = draft_key
+                        st.session_state["backlog_krs"]         = krs
+                        st.session_state["backlog_draft"]       = draft
+                        st.session_state["backlog_member"]      = member
+                        st.session_state["backlog_draft_key"]   = draft_key
                         st.rerun()
 
             # ── Backlog起票ダイアログ ─────────────────────────────────────
             if st.session_state.get("show_backlog_dialog"):
-
                 @st.dialog("📋 Backlogへ起票する", width="large")
                 def backlog_dialog():
-                    import urllib.parse
                     st.markdown('<div class="g-info">① コピーボタンでテキストをコピー → ② Backlogを開いて貼り付けて登録してください。</div>', unsafe_allow_html=True)
-
                     _krs    = st.session_state.get("backlog_krs", [])
                     _draft  = st.session_state.get("backlog_draft", {})
                     _member = st.session_state.get("backlog_member", "")
                     backlog_url = "https://kyuden-ict.backlog.com/add/MIMAMORIOPS"
-
                     for kr_ in _krs:
                         kd_ = _draft.get(kr_["id"], {})
-                        for iss_ in kd_.get("issues", []):
-                            if not iss_.get("text","").strip():
-                                continue
-                            for a_ in iss_.get("actions", []):
+                        for wa_ in kd_.get("wall_actions", []):
+                            for a_ in wa_.get("actions", []):
                                 if not a_.get("text","").strip():
                                     continue
                                 summary = a_["text"]
                                 desc = (
                                     f"【KR】{kr_['label']}：{kr_['text']}\n"
-                                    f"【壁・課題】{iss_['text']}\n"
+                                    f"【壁・課題】{wa_['wall_text']}\n"
                                     f"【期間】{a_.get('start','')} → {a_.get('end','')}\n"
                                     f"【担当】{_member}"
                                 )
@@ -1243,19 +1232,13 @@ def render_plan(master: dict):
                                         f'<div style="font-size:.85rem;font-weight:600;'
                                         f'color:var(--color-text-primary);margin-bottom:.5rem;">'
                                         f'⚡ {a_["text"][:50]}{"..." if len(a_["text"])>50 else ""}'
-                                        f'</div>',
-                                        unsafe_allow_html=True,
+                                        f'</div>', unsafe_allow_html=True,
                                     )
                                     st.markdown("**件名**")
                                     st.code(summary, language=None)
                                     st.markdown("**説明**")
                                     st.code(desc, language=None)
-                                    st.link_button(
-                                        "🔗 Backlogで新規チケットを開く",
-                                        backlog_url,
-                                        use_container_width=True,
-                                    )
-
+                                    st.link_button("🔗 Backlogで新規チケットを開く", backlog_url, use_container_width=True)
                     st.markdown("---")
                     if st.button("✅ 起票完了・入力画面に戻る", type="primary", use_container_width=True):
                         st.session_state["show_backlog_dialog"] = False
@@ -1264,11 +1247,10 @@ def render_plan(master: dict):
                             del st.session_state[_dk]
                         st.session_state.plan_step = 0
                         st.rerun()
-
                 backlog_dialog()
 
         with col_tree:
-            render_logic_tree(master, kr_idx, issues, pal)
+            render_logic_tree(master, kr_idx, wall_actions, pal)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1280,8 +1262,8 @@ def build_gantt(all_plans: list[dict]) -> Any | None:
     for plan in all_plans:
         m = plan.get("member","不明")
         for item in plan.get("items",[]):
-            for iss in item.get("issues",[]):
-                for action in iss.get("actions",[]):
+            for wa in item.get("wall_actions",[]):
+                for action in wa.get("actions",[]):
                     if not action.get("text") or not action.get("start") or not action.get("end"):
                         continue
                     rows.append(dict(
@@ -1358,17 +1340,17 @@ def render_dashboard(master: dict):
 
     # 統計
     total_actions = sum(
-        len(iss.get("actions",[]))
+        len(wa.get("actions",[]))
         for p in all_plans for item in p.get("items",[])
-        for iss in item.get("issues",[])
+        for wa in item.get("wall_actions",[])
     )
     all_starts = [
         a["start"] for p in all_plans for item in p.get("items",[])
-        for iss in item.get("issues",[]) for a in iss.get("actions",[]) if a.get("start")
+        for wa in item.get("wall_actions",[]) for a in wa.get("actions",[]) if a.get("start")
     ]
     all_ends = [
         a["end"] for p in all_plans for item in p.get("items",[])
-        for iss in item.get("issues",[]) for a in iss.get("actions",[]) if a.get("end")
+        for wa in item.get("wall_actions",[]) for a in wa.get("actions",[]) if a.get("end")
     ]
 
     st.markdown('<div class="stat-row">', unsafe_allow_html=True)
@@ -1408,25 +1390,23 @@ def render_dashboard(master: dict):
         for item in plan.get("items",[]):
             kr_idx_ = next((i for i,kr in enumerate(master.get("key_results",[])) if kr.get("id")==item.get("kr_id")), 0)
             kr_col  = KR_COLORS[kr_idx_ % len(KR_COLORS)]
-            issues_html = ""
-            for ii, iss in enumerate(item.get("issues",[])):
-                if not iss.get("text","").strip():
-                    continue
+            walls_html = ""
+            for ii, wa in enumerate(item.get("wall_actions",[])):
                 a_html = "".join(
                     f'<div class="action-list-item">'
                     f'<div class="a-num" style="background:{pal["main"]};">A{ai+1}</div>'
                     f'<div><span style="font-size:.8rem;color:var(--color-text-primary);">{a.get("text","")}</span>'
                     f'<div style="font-size:.7rem;color:var(--color-text-secondary);">{a.get("start","")} → {a.get("end","")}</div></div>'
                     f'</div>'
-                    for ai, a in enumerate(iss.get("actions",[])) if a.get("text","").strip()
+                    for ai, a in enumerate(wa.get("actions",[])) if a.get("text","").strip()
                 )
-                issues_html += (
+                walls_html += (
                     f'<div style="background:var(--color-background-primary);border-radius:6px;'
                     f'padding:.35rem .6rem;margin-bottom:.35rem;">'
                     f'<div style="display:flex;align-items:center;gap:5px;margin-bottom:.25rem;">'
                     f'<div style="width:18px;height:18px;border-radius:50%;background:#F39C12;'
                     f'display:flex;align-items:center;justify-content:center;font-size:.62rem;font-weight:600;color:#fff;">壁{ii+1}</div>'
-                    f'<span style="font-size:.78rem;font-weight:500;color:var(--color-text-primary);">{iss["text"][:45]}</span>'
+                    f'<span style="font-size:.78rem;font-weight:500;color:#7D6608;">{wa["wall_text"][:45]}</span>'
                     f'</div>{a_html}</div>'
                 )
             st.markdown(
@@ -1435,7 +1415,7 @@ def render_dashboard(master: dict):
                 f'<span style="background:{kr_col};color:#fff;font-size:.68rem;font-weight:700;padding:1px 8px;border-radius:20px;">{item["kr_label"]}</span>'
                 f'<span style="font-size:.78rem;font-weight:500;color:var(--color-text-primary);">{item.get("kr_text","")[:45]}</span>'
                 f'</div>'
-                f'{issues_html}</div>', unsafe_allow_html=True,
+                f'{walls_html}</div>', unsafe_allow_html=True,
             )
         st.markdown("</div>", unsafe_allow_html=True)
 
@@ -1537,8 +1517,8 @@ def build_pptx(team_name,month_label,master,all_plans,gantt_png):
         _txt(s2,m,cx+Cm(.15),cy+Cm(.05),card_w-Cm(.3),Inches(.38),sz=11,bold=True,color=C_WHT,align=PP_ALIGN.CENTER)
         iy=cy+Inches(.5)
         for item in plan.get("items",[]):
-            for iss in item.get("issues",[]):
-                for a in iss.get("actions",[])[:1]:
+            for wa in item.get("wall_actions",[]):
+                for a in wa.get("actions",[])[:1]:
                     if a.get("text","").strip() and iy<cy+ch-Inches(.1):
                         _txt(s2,f"• {a['text'][:28]}",cx+Cm(.2),iy,card_w-Cm(.4),Inches(.45),sz=8,color=C_SLAT)
                         iy+=Inches(.38)
@@ -1561,11 +1541,11 @@ def build_pptx(team_name,month_label,master,all_plans,gantt_png):
             cx+=cw
         row_bgs=[C_SNOW,RGBColor(0xFF,0xFF,0xFF)]; ri=0
         for item in plan.get("items",[]):
-            for iss in item.get("issues",[]):
-                for a in [x for x in iss.get("actions",[]) if x.get("text","").strip()]:
+            for wa in item.get("wall_actions",[]):
+                for a in [x for x in wa.get("actions",[]) if x.get("text","").strip()]:
                     cy_=tbl_y+row_h*(ri+1)
                     if cy_+row_h>H-Inches(.15): break
-                    vals=[item.get("kr_label",""),item.get("kr_text","")[:35],iss.get("text","")[:38],a.get("text","")[:50],a.get("start",""),a.get("end","")]
+                    vals=[item.get("kr_label",""),item.get("kr_text","")[:35],wa.get("wall_text","")[:38],a.get("text","")[:50],a.get("start",""),a.get("end","")]
                     cx=tbl_x; bg=row_bgs[ri%2]
                     for ci,(val,cw) in enumerate(zip(vals,col_ws)):
                         _rect(sm,cx,cy_,cw,row_h,bg,border=_rgb("#D5D8DC"))
