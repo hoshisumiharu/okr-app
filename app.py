@@ -228,8 +228,11 @@ def get_gsheet_client():
         ]
         creds  = Credentials.from_service_account_info(creds_dict, scopes=scopes)
         client = gspread.authorize(creds)
+        # 接続テスト
+        client.open_by_key(CFG["sheet_id"])
         return client
-    except Exception:
+    except Exception as e:
+        st.session_state["gsheet_error"] = str(e)
         return None
 
 
@@ -1746,6 +1749,9 @@ def main():
             st.markdown('<div class="local-badge" style="background:#EAF7EE;border-color:#82E0AA;color:#196F3D;">✅ Sheets接続済み</div>', unsafe_allow_html=True)
         elif CFG.get("sheet_id"):
             st.markdown('<div class="local-badge" style="background:#FDEDEC;border-color:#F1948A;color:#922B21;">❌ Sheets接続失敗</div>', unsafe_allow_html=True)
+            err = st.session_state.get("gsheet_error","")
+            if err:
+                st.caption(f"エラー：{err[:120]}")
         else:
             st.markdown('<div class="local-badge">⚙️ ローカル保存モード</div>', unsafe_allow_html=True)
 
