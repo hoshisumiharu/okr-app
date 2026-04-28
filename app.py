@@ -233,13 +233,15 @@ def get_gsheet_client():
         return f"ERROR:{e}"
 
 
-def _get_or_create_sheet(client, title: str):
-    """スプレッドシート内のシートを取得。なければ作成。"""
-    ss = client.open_by_key(CFG["sheet_id"])
+@st.cache_resource
+@st.cache_resource
+def _get_or_create_sheet(_client, title: str):
+    """スプレッドシート内のシートを取得。なければ作成。キャッシュ付き。"""
+    ss = _client.open_by_key(CFG["sheet_id"])
     try:
         return ss.worksheet(title)
     except gspread.WorksheetNotFound:
-        ws = ss.add_worksheet(title=title, rows=10, cols=2)
+        ws = ss.add_worksheet(title=title, rows=100, cols=2)
         ws.append_row(["key", "value"])
         return ws
 
@@ -247,14 +249,11 @@ def _get_or_create_sheet(client, title: str):
 @st.cache_data(ttl=120)
 def _cached_sheet_records(sheet_id: str, sheet_title: str) -> list[dict]:
     """シートの全レコードをキャッシュ付きで取得（2分間キャッシュ）。"""
-    try:
-        client = _valid_client()
-        if not client:
-            return []
-        ws = _get_or_create_sheet(client, sheet_title)
-        return ws.get_all_records()
-    except Exception:
+    client = _valid_client()
+    if not client:
         return []
+    ws = _get_or_create_sheet(client, sheet_title)
+    return ws.get_all_records()
 
 
 def _invalidate_sheet_cache(sheet_id: str, sheet_title: str):
@@ -271,6 +270,16 @@ def _sheets_get(client, sheet_title: str, key: str) -> dict | None:
                 return json.loads(row["value"])
         return None
     except Exception:
+        # キャッシュをクリアして再試行
+        _cached_sheet_records.clear()
+        try:
+            ws   = _get_or_create_sheet(client, sheet_title)
+            rows = ws.get_all_records()
+            for row in rows:
+                if str(row.get("key","")) == key:
+                    return json.loads(row["value"])
+        except Exception:
+            pass
         return None
 
 
@@ -278,7 +287,7 @@ def _sheets_set(client, sheet_title: str, key: str, data: dict) -> bool:
     """シートにkeyとJSONを保存（既存行は上書き）。"""
     try:
         ws    = _get_or_create_sheet(client, sheet_title)
-        rows  = ws.get_all_records()
+        rows  = _cached_sheet_records(CFG["sheet_id"], sheet_title)
         value = json.dumps(data, ensure_ascii=False)
         for i, row in enumerate(rows, start=2):
             if str(row.get("key","")) == key:
@@ -297,7 +306,7 @@ def _sheets_delete(client, sheet_title: str, key: str) -> bool:
     """シートからkeyの行を削除。"""
     try:
         ws   = _get_or_create_sheet(client, sheet_title)
-        rows = ws.get_all_records()
+        rows = _cached_sheet_records(CFG["sheet_id"], sheet_title)
         for i, row in enumerate(rows, start=2):
             if str(row.get("key","")) == key:
                 ws.delete_rows(i)
@@ -310,8 +319,7 @@ def _sheets_delete(client, sheet_title: str, key: str) -> bool:
 
 def _sheets_list(client, sheet_title: str, prefix: str) -> list[dict]:
     """指定prefixで始まるkeyのJSON一覧を返す。"""
-    try:
-        rows = _cached_sheet_records(CFG["sheet_id"], sheet_title)
+    def _parse_rows(rows):
         result = []
         for row in rows:
             k = str(row.get("key",""))
@@ -320,6 +328,16 @@ def _sheets_list(client, sheet_title: str, prefix: str) -> list[dict]:
                     result.append(json.loads(row["value"]))
                 except Exception:
                     pass
+        return result
+
+    try:
+        rows = _cached_sheet_records(CFG["sheet_id"], sheet_title)
+        result = _parse_rows(rows)
+        if not result:
+            # キャッシュが空の可能性 → 直接読み込み
+            _cached_sheet_records.clear()
+            rows = _cached_sheet_records(CFG["sheet_id"], sheet_title)
+            result = _parse_rows(rows)
         return result
     except Exception:
         return []
@@ -1609,13 +1627,83 @@ def render_dashboard(master: dict):
                     "priority": final_pri,
                     "assignee": assignee,
                 }
-    
+
             st.markdown("")
             if st.button("✅ 優先度を確定する", type="primary", use_container_width=False):
                 if io_save_priorities(month_str, priorities):
                     st.session_state.priorities = priorities
+                    st.session_state["priority_confirmed"] = True
                     st.toast("✅ 優先度を確定しました！", icon="🎯")
                     st.rerun()
+
+            # ── 着手順序・依存関係の検討（優先度確定後に表示） ──────────────
+            if st.session_state.get("priority_confirmed") or any(
+                isinstance(v, dict) and v.get("priority") in {"高","中"}
+                for v in priorities.values()
+            ):
+                st.markdown("---")
+                st.markdown("### 🔀 着手順序・依存関係を整理する")
+                st.markdown('<div class="g-info">優先度「高」「中」のアクションについて、着手する前に完了していないと動けないことがあれば記入してください。同時並行で進められる場合は「特になし」でOKです。</div>', unsafe_allow_html=True)
+
+                # 依存関係データをsession_stateで管理
+                dep_key = f"dependencies_{month_str}"
+                if dep_key not in st.session_state:
+                    st.session_state[dep_key] = {}
+                deps: dict = st.session_state[dep_key]
+
+                TARGET_PRI = {"高", "中"}
+                has_target = False
+                for plan in all_plans:
+                    for item in plan.get("items", []):
+                        for ii, wa in enumerate(item.get("wall_actions", [])):
+                            for ia, a in enumerate(wa.get("actions", [])):
+                                if not a.get("text", "").strip():
+                                    continue
+                                ak2   = f"team__{item['kr_id']}__{ii}__{ia}"
+                                saved2 = priorities.get(ak2, {})
+                                pri2   = saved2.get("priority", "未設定") if isinstance(saved2, dict) else saved2
+                                if pri2 not in TARGET_PRI:
+                                    continue
+                                has_target = True
+                                pri_color = "#E74C3C" if pri2 == "高" else "#F39C12"
+                                assignee2 = saved2.get("assignee", "") if isinstance(saved2, dict) else ""
+
+                                with st.container(border=True):
+                                    st.markdown(
+                                        f'<div style="display:flex;align-items:center;gap:6px;margin-bottom:.5rem;">'
+                                        f'<span style="background:{pri_color};color:#fff;font-size:.7rem;font-weight:600;padding:2px 8px;border-radius:20px;">{pri2}</span>'
+                                        f'<span style="font-size:.82rem;font-weight:600;color:var(--color-text-primary);">{a["text"]}</span>'
+                                        f'{"<span style=\'font-size:.72rem;color:var(--color-text-secondary);margin-left:4px;\'>👤" + assignee2 + "</span>" if assignee2 else ""}'
+                                        f'</div>',
+                                        unsafe_allow_html=True,
+                                    )
+                                    cur_dep = deps.get(ak2, {"blocker": "", "order_note": ""})
+                                    blocker = st.text_input(
+                                        "着手前に完了していないと動けないことは？",
+                                        value=cur_dep.get("blocker", ""),
+                                        placeholder="例）顧客リストの整備が完了してから / 特になし（すぐ着手できる）",
+                                        key=f"blocker_{ak2}",
+                                    )
+                                    order_note = st.text_input(
+                                        "他のアクションとの関係・並行可否は？",
+                                        value=cur_dep.get("order_note", ""),
+                                        placeholder="例）〇〇と並行して進められる / △△が終わってから着手",
+                                        key=f"order_{ak2}",
+                                    )
+                                    deps[ak2] = {"blocker": blocker, "order_note": order_note}
+
+                if has_target:
+                    st.markdown("")
+                    if st.button("💾 着手順序・依存関係を保存する", use_container_width=False):
+                        # prioritiesに依存関係を統合して保存
+                        for ak2, dep in deps.items():
+                            if ak2 in priorities and isinstance(priorities[ak2], dict):
+                                priorities[ak2]["blocker"]    = dep.get("blocker", "")
+                                priorities[ak2]["order_note"] = dep.get("order_note", "")
+                        if io_save_priorities(month_str, priorities):
+                            st.session_state.priorities = priorities
+                            st.toast("✅ 着手順序・依存関係を保存しました！", icon="🔀")
+                            st.success("タスク起票タブに進んでBacklogへ起票してください。")
 
     # ガントチャート
     st.markdown("### 📊 統合ガントチャート")
@@ -1744,7 +1832,7 @@ def render_task_ticket(master: dict, month_str: str):
 """, unsafe_allow_html=True)
 
     st.markdown("### STEP 2：一問一答で詳細を入力")
-    st.markdown('<div class="g-info">必須項目（Q1〜Q8）に回答してください。任意項目はスキップできます。</div>', unsafe_allow_html=True)
+    st.markdown('<div class="g-info">必須項目（Q0〜Q8）に回答してください。任意項目はスキップできます。</div>', unsafe_allow_html=True)
 
     ak = sel["ak"]
     sk = f"task_qa_{ak}"
@@ -1752,18 +1840,31 @@ def render_task_ticket(master: dict, month_str: str):
         st.session_state[sk] = {}
     qa: dict = st.session_state[sk]
 
+    # DASHBOARDで入力した依存関係を自動引き継ぎ
+    saved_pri = priorities.get(ak, {})
+    if isinstance(saved_pri, dict):
+        if not qa.get("blocker") and saved_pri.get("blocker"):
+            qa["blocker"] = saved_pri["blocker"]
+        if not qa.get("order_note") and saved_pri.get("order_note"):
+            qa["order_note"] = saved_pri["order_note"]
+        if not qa.get("assignee") and saved_pri.get("assignee"):
+            qa["assignee"] = saved_pri["assignee"]
+
     QUESTIONS = [
+        ("happy_path",   "Q0. このタスクが完了することで、誰がどんな状態になりますか？", True,  "text",   "例）親族が安心してサービスを利用できるようになる / 事業者が余分な説明コストなく対応できるようになる"),
         ("target",       "Q1. 相手先は誰ですか？",                                True,  "text",   "例）入居者家族、事業者、〇〇部署"),
         ("coordinator",  "Q2. 誰と調整が必要ですか？",                             True,  "text",   "例）営業担当、現場スタッフ、〇〇さん"),
         ("resources",    "Q3. 必要なものは何ですか？（資料・ツール・データなど）",   True,  "text",   "例）インタビューシート、録音ツール、顧客リスト"),
-        ("first_action", "Q4. 最初にやることは何ですか？",                          True,  "text",   "例）対象者リストを作成する"),
-        ("deadline",     "Q5. 期限はいつですか？",                                  True,  "date",   ""),
-        ("assignee",     "Q6. 担当者は誰ですか？",                                  True,  "member", ""),
-        ("done_def",     "Q7. 完了したとみなせる状態は何ですか？",                   True,  "text",   "例）インタビュー10件実施しSlackで共有完了"),
-        ("next_action",  "Q8. 完了後のネクストアクションは何ですか？",               True,  "text",   "例）結果をまとめてチームに報告、次の施策を検討"),
-        ("approver",     "Q9. 承認・確認を取る必要がある人は？（任意）",             False, "text",   "例）上長、〇〇マネジャー"),
-        ("share",        "Q10. 完了後に誰にどう共有しますか？（任意）",              False, "text",   "例）Slackで全員に共有、月例MTGで報告"),
-        ("risk",         "Q11. うまくいかない可能性があるとしたら何ですか？（任意）", False, "text",   "例）相手の都合が合わない、データが揃わない"),
+        ("blocker",      "Q4. 着手前に完了していないと動けないことはありますか？",   True,  "text",   "例）顧客リストの整備が完了してから / 特になし（すぐ着手できる）"),
+        ("order_note",   "Q5. 他のアクションとの関係・並行可否は？",                True,  "text",   "例）〇〇と並行して進められる / △△が終わってから着手"),
+        ("first_action", "Q6. 最初にやることは何ですか？",                          True,  "text",   "例）対象者リストを作成する"),
+        ("deadline",     "Q7. 期限はいつですか？",                                  True,  "date",   ""),
+        ("assignee",     "Q8. 担当者は誰ですか？",                                  True,  "member", ""),
+        ("done_def",     "Q9. 完了したとみなせる状態は何ですか？",                   True,  "text",   "例）インタビュー10件実施しSlackで共有完了"),
+        ("next_action",  "Q10. 完了後のネクストアクションは何ですか？",              True,  "text",   "例）結果をまとめてチームに報告、次の施策を検討"),
+        ("approver",     "Q11. 承認・確認を取る必要がある人は？（任意）",            False, "text",   "例）上長、〇〇マネジャー"),
+        ("share",        "Q12. 完了後に誰にどう共有しますか？（任意）",              False, "text",   "例）Slackで全員に共有、月例MTGで報告"),
+        ("risk",         "Q13. うまくいかない可能性があるとしたら何ですか？（任意）", False, "text",   "例）相手の都合が合わない、データが揃わない"),
     ]
 
     all_required_filled = True
@@ -1817,12 +1918,19 @@ def render_task_ticket(master: dict, month_str: str):
 
         md = f"""## 【アクション】{sel["action"]}
 
+### 期待する成果
+{qa.get("happy_path","")}
+
 ### ロジック
 - **O**：{obj}
 - **{sel["kr_label"]}**：{sel["kr_text"]}
 - **壁**：{sel["wall"]}
 - **アクション**：{sel["action"]}
 - **優先度**：{sel["priority"]}
+
+### 着手条件
+- **前提条件・ブロッカー**：{qa.get("blocker","")}
+- **他アクションとの関係**：{qa.get("order_note","")}
 
 ### タスク詳細
 - **相手先**：{qa.get("target","")}
