@@ -8,7 +8,7 @@ AWSアカウント不要。
     pip install streamlit pandas plotly python-pptx kaleido
 
 .streamlit/secrets.toml（最小構成）:
-    [app]A
+    [app]
     team_name = "プロダクトチーム"
     members   = ["田中 一郎", "鈴木 花子", "佐藤 健二", "山田 美咲"]
     admin_pin = "1234"
