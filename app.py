@@ -20,7 +20,7 @@ AWSアカウント不要。
 
 起動:
     streamlit run app.py
-
+AC
 データ保存先:
     data/
     ├── master_config.json       ← 四半期OKR
@@ -795,6 +795,7 @@ def render_strategy(master: dict):
         if st.button("🔓 ロックを解除して編集する（要チーム合意）", type="secondary"):
             master["locked"] = False
             io_save_master(master)
+            st.session_state.cached_master = master
             st.toast("ロックを解除しました。", icon="🔓")
             st.rerun()
         return
@@ -954,6 +955,7 @@ def render_strategy(master: dict):
                 ],
             )
             if io_save_master(payload):
+                st.session_state.cached_master = payload
                 st.toast("🌟 OKRを確定しました！北極星が輝きました。", icon="🌟")
                 st.success("✅ 確定保存しました。ページを更新すると北極星バナーに反映されます。")
 
@@ -1047,8 +1049,10 @@ def render_plan(master: dict):
 
     draft: dict = st.session_state[draft_key]
 
-    # 優先度データ読み込み（バッジ表示用）
-    priorities = io_get_priorities(month_str)
+    # 優先度データ（セッションキャッシュ。DASHBOARDで確定後に更新される）
+    if "priorities" not in st.session_state:
+        st.session_state.priorities = io_get_priorities(month_str)
+    priorities = st.session_state.priorities
 
     render_progress(step)
 
@@ -1928,18 +1932,30 @@ def main():
     team_name  = CFG["team_name"]
     month_str  = st.session_state.month_str
     month_disp = datetime.date.fromisoformat(month_str+"-01").strftime("%Y年%m月")
-    master     = io_get_master()
+
+    # マスターデータをセッションキャッシュ（初回のみSheets読み込み）
+    if "cached_master" not in st.session_state:
+        st.session_state.cached_master = io_get_master()
+    master = st.session_state.cached_master
 
     with st.sidebar:
         st.markdown(f"## 🌟 OKR管理\n**{team_name}**")
         st.markdown("---")
 
-        # 接続状況
-        _client = get_gsheet_client()
-        if isinstance(_client, str) and _client.startswith("ERROR:"):
+        # 接続状況（初回のみ確認）
+        if "sheets_status" not in st.session_state:
+            _c = get_gsheet_client()
+            if isinstance(_c, str) and _c.startswith("ERROR:"):
+                st.session_state.sheets_status = ("error", _c[6:120])
+            elif _c and CFG.get("sheet_id"):
+                st.session_state.sheets_status = ("ok", "")
+            else:
+                st.session_state.sheets_status = ("local", "")
+        _status, _msg = st.session_state.sheets_status
+        if _status == "error":
             st.markdown('<div class="local-badge" style="background:#FDEDEC;border-color:#F1948A;color:#922B21;">❌ Sheets接続失敗</div>', unsafe_allow_html=True)
-            st.caption(_client[6:120])
-        elif _client and CFG.get("sheet_id"):
+            if _msg: st.caption(_msg)
+        elif _status == "ok":
             st.markdown('<div class="local-badge" style="background:#EAF7EE;border-color:#82E0AA;color:#196F3D;">✅ Sheets接続済み</div>', unsafe_allow_html=True)
         else:
             st.markdown('<div class="local-badge">⚙️ ローカル保存モード</div>', unsafe_allow_html=True)
