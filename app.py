@@ -248,14 +248,11 @@ def _get_or_create_sheet(client, title: str):
 @st.cache_data(ttl=120)
 def _cached_sheet_records(sheet_id: str, sheet_title: str) -> list[dict]:
     """シートの全レコードをキャッシュ付きで取得（2分間キャッシュ）。"""
-    try:
-        client = _valid_client()
-        if not client:
-            return []
-        ws = _get_or_create_sheet(client, sheet_title)
-        return ws.get_all_records()
-    except Exception:
+    client = _valid_client()
+    if not client:
         return []
+    ws = _get_or_create_sheet(client, sheet_title)
+    return ws.get_all_records()
 
 
 def _invalidate_sheet_cache(sheet_id: str, sheet_title: str):
@@ -272,6 +269,16 @@ def _sheets_get(client, sheet_title: str, key: str) -> dict | None:
                 return json.loads(row["value"])
         return None
     except Exception:
+        # キャッシュをクリアして再試行
+        _cached_sheet_records.clear()
+        try:
+            ws   = _get_or_create_sheet(client, sheet_title)
+            rows = ws.get_all_records()
+            for row in rows:
+                if str(row.get("key","")) == key:
+                    return json.loads(row["value"])
+        except Exception:
+            pass
         return None
 
 
@@ -311,8 +318,7 @@ def _sheets_delete(client, sheet_title: str, key: str) -> bool:
 
 def _sheets_list(client, sheet_title: str, prefix: str) -> list[dict]:
     """指定prefixで始まるkeyのJSON一覧を返す。"""
-    try:
-        rows = _cached_sheet_records(CFG["sheet_id"], sheet_title)
+    def _parse_rows(rows):
         result = []
         for row in rows:
             k = str(row.get("key",""))
@@ -321,6 +327,16 @@ def _sheets_list(client, sheet_title: str, prefix: str) -> list[dict]:
                     result.append(json.loads(row["value"]))
                 except Exception:
                     pass
+        return result
+
+    try:
+        rows = _cached_sheet_records(CFG["sheet_id"], sheet_title)
+        result = _parse_rows(rows)
+        if not result:
+            # キャッシュが空の可能性 → 直接読み込み
+            _cached_sheet_records.clear()
+            rows = _cached_sheet_records(CFG["sheet_id"], sheet_title)
+            result = _parse_rows(rows)
         return result
     except Exception:
         return []
