@@ -1526,13 +1526,18 @@ def render_dashboard(master: dict):
         st.markdown('<div class="g-info">効果（1〜5）と手間（1〜5）を入力すると優先度が自動提案されます。内容を確認して修正後、「✅ 優先度を確定する」を押してください。</div>', unsafe_allow_html=True)
 
         # スコア→優先度変換
-        def calc_priority(effect: int, effort: int) -> str:
-            if effort == 0:
+        SIZE_MAP = {"小": 1, "中": 2, "大": 3, "": 0}
+        SIZE_OPTIONS = ["", "小", "中", "大"]
+
+        def calc_priority(effect: str, effort: str) -> str:
+            e1 = SIZE_MAP.get(effect, 0)
+            e2 = SIZE_MAP.get(effort, 0)
+            if e1 == 0 or e2 == 0:
                 return "未設定"
-            score = effect / effort
-            if score >= 2.0:
+            score = e1 / e2
+            if score >= 1.5:
                 return "高"
-            elif score >= 1.0:
+            elif score >= 0.7:
                 return "中"
             else:
                 return "低"
@@ -1547,7 +1552,7 @@ def render_dashboard(master: dict):
 
         # ヘッダー
         h_cols = st.columns([3, 2.5, 1.2, 1.2, 1.5, 1.8])
-        for col, label in zip(h_cols, ["アクション", "壁", "効果\n(1〜5)", "手間\n(1〜5)", "自動提案", "優先度（確定）"]):
+        for col, label in zip(h_cols, ["アクション", "壁", "効果", "手間", "自動提案", "優先度（確定）"]):
             with col:
                 st.markdown(
                     f'<div style="font-size:.72rem;font-weight:600;color:var(--color-text-secondary);'
@@ -1571,8 +1576,7 @@ def render_dashboard(master: dict):
                         ak = f"{m}__{item['kr_id']}__{ii}__{ia}"
                         saved = priorities.get(ak, {})
                         if isinstance(saved, str):
-                            # 旧フォーマット互換
-                            saved = {"effect": 0, "effort": 0, "priority": saved}
+                            saved = {"effect": "", "effort": "", "priority": saved}
 
                         c_act, c_wall, c_eff, c_eft, c_auto, c_pri = st.columns([3, 2.5, 1.2, 1.2, 1.5, 1.8])
 
@@ -1589,21 +1593,27 @@ def render_dashboard(master: dict):
                                 unsafe_allow_html=True,
                             )
                         with c_eff:
-                            effect = st.number_input(
-                                "効果", min_value=0, max_value=5,
-                                value=int(saved.get("effect", 0)),
-                                step=1, key=f"effect_{ak}",
+                            eff_val = saved.get("effect", "")
+                            if eff_val not in SIZE_OPTIONS:
+                                eff_val = ""
+                            effect = st.selectbox(
+                                "効果", SIZE_OPTIONS,
+                                index=SIZE_OPTIONS.index(eff_val),
+                                key=f"effect_{ak}",
                                 label_visibility="collapsed",
                             )
                         with c_eft:
-                            effort = st.number_input(
-                                "手間", min_value=0, max_value=5,
-                                value=int(saved.get("effort", 0)),
-                                step=1, key=f"effort_{ak}",
+                            eft_val = saved.get("effort", "")
+                            if eft_val not in SIZE_OPTIONS:
+                                eft_val = ""
+                            effort = st.selectbox(
+                                "手間", SIZE_OPTIONS,
+                                index=SIZE_OPTIONS.index(eft_val),
+                                key=f"effort_{ak}",
                                 label_visibility="collapsed",
                             )
                         with c_auto:
-                            auto = calc_priority(effect, effort) if (effect > 0 and effort > 0) else "未設定"
+                            auto  = calc_priority(effect, effort)
                             color = PRIORITY_COLORS.get(auto, "#95A5A6")
                             st.markdown(
                                 f'<div style="background:{color};color:#fff;font-size:.72rem;'
