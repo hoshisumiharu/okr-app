@@ -1580,8 +1580,8 @@ def render_dashboard(master: dict):
             all_action_rows.sort(key=lambda r: PRIORITY_ORDER.get(r["auto"], 3))
 
         # ヘッダー
-        h_cols = st.columns([3, 2.5, 1.2, 1.2, 1.5, 1.8])
-        for col, label in zip(h_cols, ["アクション", "壁", "効果", "手間", "自動提案", "優先度（確定）"]):
+        h_cols = st.columns([2.5, 2, 1.1, 1.1, 1.4, 1.6, 1.6])
+        for col, label in zip(h_cols, ["アクション", "壁", "効果", "手間", "自動提案", "優先度（確定）", "担当者"]):
             with col:
                 st.markdown(
                     f'<div style="font-size:.72rem;font-weight:600;color:var(--color-text-secondary);'
@@ -1597,7 +1597,6 @@ def render_dashboard(master: dict):
             ii, ia, wa, a = row["ii"], row["ia"], row["wa"], row["a"]
             ak, saved, auto = row["ak"], row["saved"], row["auto"]
 
-            # メンバー名ラベル（ソート時は変わるので都度表示）
             if not sort_by_priority and m != cur_member_label:
                 cur_member_label = m
                 st.markdown(
@@ -1608,7 +1607,7 @@ def render_dashboard(master: dict):
 
             color = PRIORITY_COLORS.get(auto, "#95A5A6")
 
-            c_act, c_wall, c_eff, c_eft, c_auto, c_pri = st.columns([3, 2.5, 1.2, 1.2, 1.5, 1.8])
+            c_act, c_wall, c_eff, c_eft, c_auto, c_pri, c_mem = st.columns([2.5, 2, 1.1, 1.1, 1.4, 1.6, 1.6])
 
             with c_act:
                 pri_badge = ""
@@ -1625,7 +1624,7 @@ def render_dashboard(master: dict):
             with c_wall:
                 st.markdown(
                     f'<div style="font-size:.7rem;color:#7D6608;padding:.3rem 0;">'
-                    f'壁{ii+1}：{wa["wall_text"][:20]}{"…" if len(wa["wall_text"])>20 else ""}</div>',
+                    f'壁{ii+1}：{wa["wall_text"][:18]}{"…" if len(wa["wall_text"])>18 else ""}</div>',
                     unsafe_allow_html=True,
                 )
             with c_eff:
@@ -1668,12 +1667,24 @@ def render_dashboard(master: dict):
                     key=f"pri_{ak}",
                     label_visibility="collapsed",
                 )
+            with c_mem:
+                current_assignee = saved.get("assignee", m)
+                if current_assignee not in MEMBERS:
+                    current_assignee = m
+                assignee = st.selectbox(
+                    "担当者",
+                    MEMBERS,
+                    index=MEMBERS.index(current_assignee),
+                    key=f"assignee_{ak}",
+                    label_visibility="collapsed",
+                )
 
             priorities[ak] = {
                 "effect":   effect,
                 "effort":   effort,
                 "auto":     auto_now,
                 "priority": final_pri,
+                "assignee": assignee,
             }
 
         st.markdown("")
