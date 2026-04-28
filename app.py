@@ -20,7 +20,7 @@ AWSアカウント不要。
 
 起動:
     streamlit run app.py
-AC
+
 データ保存先:
     data/
     ├── master_config.json       ← 四半期OKR
@@ -1470,131 +1470,133 @@ def render_dashboard(master: dict):
             st.session_state.priorities = io_get_priorities(month_str)
         priorities: dict = st.session_state.priorities
 
-        # ソート設定
-        sort_by_priority = st.checkbox("自動提案の優先度でソートする", value=False, key="sort_priority")
-
-        PRIORITY_ORDER = {"高": 0, "中": 1, "低": 2, "未設定": 3}
-
-        # 全アクションをフラット化してソート
-        all_action_rows = []
-        for plan in all_plans:
-            for item in plan.get("items",[]):
-                for ii, wa in enumerate(item.get("wall_actions",[])):
-                    for ia, a in enumerate(wa.get("actions",[])):
-                        if not a.get("text","").strip():
-                            continue
-                        ak    = f"team__{item['kr_id']}__{ii}__{ia}"
-                        saved = priorities.get(ak, {})
-                        if isinstance(saved, str):
-                            saved = {"effect": "", "effort": "", "priority": saved}
-                        auto  = calc_priority(saved.get("effect",""), saved.get("effort",""))
-                        all_action_rows.append({
-                            "item": item, "ii": ii, "ia": ia,
-                            "wa": wa, "a": a, "ak": ak,
-                            "saved": saved, "auto": auto,
-                        })
-
-        if sort_by_priority:
-            all_action_rows.sort(key=lambda r: PRIORITY_ORDER.get(r["auto"], 3))
-
-        # ヘッダー
-        h_cols = st.columns([2.5, 2, 1.1, 1.1, 1.4, 1.6, 1.6])
-        for col, label in zip(h_cols, ["アクション", "壁", "効果", "手間", "自動提案", "優先度（確定）", "担当者"]):
-            with col:
-                st.markdown(
-                    f'<div style="font-size:.72rem;font-weight:600;color:var(--color-text-secondary);'
-                    f'padding:.2rem 0;border-bottom:1.5px solid var(--color-border-secondary);">{label}</div>',
-                    unsafe_allow_html=True,
-                )
-
-        cur_member_label = None
-        for row in all_action_rows:
-            item = row["item"]
-            ii, ia, wa, a = row["ii"], row["ia"], row["wa"], row["a"]
-            ak, saved, auto = row["ak"], row["saved"], row["auto"]
-
-            color = PRIORITY_COLORS.get(auto, "#95A5A6")
-
-            c_act, c_wall, c_eff, c_eft, c_auto, c_pri, c_mem = st.columns([2.5, 2, 1.1, 1.1, 1.4, 1.6, 1.6])
-
-            with c_act:
-                st.markdown(
-                    f'<div style="font-size:.78rem;color:var(--color-text-primary);'
-                    f'padding:.3rem 0;line-height:1.4;">{a["text"]}</div>',
-                    unsafe_allow_html=True,
-                )
-            with c_wall:
-                st.markdown(
-                    f'<div style="font-size:.7rem;color:#7D6608;padding:.3rem 0;">'
-                    f'壁{ii+1}：{wa["wall_text"][:18]}{"…" if len(wa["wall_text"])>18 else ""}</div>',
-                    unsafe_allow_html=True,
-                )
-            with c_eff:
-                eff_val = saved.get("effect", "")
-                if eff_val not in SIZE_OPTIONS:
-                    eff_val = ""
-                effect = st.selectbox(
-                    "効果", SIZE_OPTIONS,
-                    index=SIZE_OPTIONS.index(eff_val),
-                    key=f"effect_{ak}",
-                    label_visibility="collapsed",
-                )
-            with c_eft:
-                eft_val = saved.get("effort", "")
-                if eft_val not in SIZE_OPTIONS:
-                    eft_val = ""
-                effort = st.selectbox(
-                    "手間", SIZE_OPTIONS,
-                    index=SIZE_OPTIONS.index(eft_val),
-                    key=f"effort_{ak}",
-                    label_visibility="collapsed",
-                )
-            with c_auto:
-                auto_now = calc_priority(effect, effort)
-                color    = PRIORITY_COLORS.get(auto_now, "#95A5A6")
-                st.markdown(
-                    f'<div style="background:{color};color:#fff;font-size:.72rem;'
-                    f'font-weight:600;padding:3px 10px;border-radius:20px;'
-                    f'text-align:center;margin-top:4px;">{auto_now}</div>',
-                    unsafe_allow_html=True,
-                )
-            with c_pri:
-                current_pri = saved.get("priority", auto_now)
-                if current_pri not in PRIORITY_OPTIONS:
-                    current_pri = auto_now if auto_now in PRIORITY_OPTIONS else "未設定"
-                final_pri = st.selectbox(
-                    "優先度",
-                    PRIORITY_OPTIONS,
-                    index=PRIORITY_OPTIONS.index(current_pri),
-                    key=f"pri_{ak}",
-                    label_visibility="collapsed",
-                )
-            with c_mem:
-                current_assignee = saved.get("assignee", m)
-                if current_assignee not in MEMBERS:
-                    current_assignee = m
-                assignee = st.selectbox(
-                    "担当者",
-                    MEMBERS,
-                    index=MEMBERS.index(current_assignee),
-                    key=f"assignee_{ak}",
-                    label_visibility="collapsed",
-                )
-
-            priorities[ak] = {
-                "effect":   effect,
-                "effort":   effort,
-                "auto":     auto_now,
-                "priority": final_pri,
-                "assignee": assignee,
-            }
-
-        st.markdown("")
-        if st.button("✅ 優先度を確定する", type="primary", use_container_width=False):
-            if io_save_priorities(month_str, priorities):
-                st.session_state.priorities = priorities
-                st.toast("✅ 優先度を確定しました！", icon="🎯")
-                st.rerun()
+        if not all_plans:
+            st.warning("先に「🔄 データを読み込む」ボタンを押してください。")
+        else:
+            sort_by_priority = st.checkbox("自動提案の優先度でソートする", value=False, key="sort_priority")
+    
+            PRIORITY_ORDER = {"高": 0, "中": 1, "低": 2, "未設定": 3}
+    
+            # 全アクションをフラット化してソート
+            all_action_rows = []
+            for plan in all_plans:
+                for item in plan.get("items",[]):
+                    for ii, wa in enumerate(item.get("wall_actions",[])):
+                        for ia, a in enumerate(wa.get("actions",[])):
+                            if not a.get("text","").strip():
+                                continue
+                            ak    = f"team__{item['kr_id']}__{ii}__{ia}"
+                            saved = priorities.get(ak, {})
+                            if isinstance(saved, str):
+                                saved = {"effect": "", "effort": "", "priority": saved}
+                            auto  = calc_priority(saved.get("effect",""), saved.get("effort",""))
+                            all_action_rows.append({
+                                "item": item, "ii": ii, "ia": ia,
+                                "wa": wa, "a": a, "ak": ak,
+                                "saved": saved, "auto": auto,
+                            })
+    
+            if sort_by_priority:
+                all_action_rows.sort(key=lambda r: PRIORITY_ORDER.get(r["auto"], 3))
+    
+            # ヘッダー
+            h_cols = st.columns([2.5, 2, 1.1, 1.1, 1.4, 1.6, 1.6])
+            for col, label in zip(h_cols, ["アクション", "壁", "効果", "手間", "自動提案", "優先度（確定）", "担当者"]):
+                with col:
+                    st.markdown(
+                        f'<div style="font-size:.72rem;font-weight:600;color:var(--color-text-secondary);'
+                        f'padding:.2rem 0;border-bottom:1.5px solid var(--color-border-secondary);">{label}</div>',
+                        unsafe_allow_html=True,
+                    )
+    
+            cur_member_label = None
+            for row in all_action_rows:
+                item = row["item"]
+                ii, ia, wa, a = row["ii"], row["ia"], row["wa"], row["a"]
+                ak, saved, auto = row["ak"], row["saved"], row["auto"]
+    
+                color = PRIORITY_COLORS.get(auto, "#95A5A6")
+    
+                c_act, c_wall, c_eff, c_eft, c_auto, c_pri, c_mem = st.columns([2.5, 2, 1.1, 1.1, 1.4, 1.6, 1.6])
+    
+                with c_act:
+                    st.markdown(
+                        f'<div style="font-size:.78rem;color:var(--color-text-primary);'
+                        f'padding:.3rem 0;line-height:1.4;">{a["text"]}</div>',
+                        unsafe_allow_html=True,
+                    )
+                with c_wall:
+                    st.markdown(
+                        f'<div style="font-size:.7rem;color:#7D6608;padding:.3rem 0;">'
+                        f'壁{ii+1}：{wa["wall_text"][:18]}{"…" if len(wa["wall_text"])>18 else ""}</div>',
+                        unsafe_allow_html=True,
+                    )
+                with c_eff:
+                    eff_val = saved.get("effect", "")
+                    if eff_val not in SIZE_OPTIONS:
+                        eff_val = ""
+                    effect = st.selectbox(
+                        "効果", SIZE_OPTIONS,
+                        index=SIZE_OPTIONS.index(eff_val),
+                        key=f"effect_{ak}",
+                        label_visibility="collapsed",
+                    )
+                with c_eft:
+                    eft_val = saved.get("effort", "")
+                    if eft_val not in SIZE_OPTIONS:
+                        eft_val = ""
+                    effort = st.selectbox(
+                        "手間", SIZE_OPTIONS,
+                        index=SIZE_OPTIONS.index(eft_val),
+                        key=f"effort_{ak}",
+                        label_visibility="collapsed",
+                    )
+                with c_auto:
+                    auto_now = calc_priority(effect, effort)
+                    color    = PRIORITY_COLORS.get(auto_now, "#95A5A6")
+                    st.markdown(
+                        f'<div style="background:{color};color:#fff;font-size:.72rem;'
+                        f'font-weight:600;padding:3px 10px;border-radius:20px;'
+                        f'text-align:center;margin-top:4px;">{auto_now}</div>',
+                        unsafe_allow_html=True,
+                    )
+                with c_pri:
+                    current_pri = saved.get("priority", auto_now)
+                    if current_pri not in PRIORITY_OPTIONS:
+                        current_pri = auto_now if auto_now in PRIORITY_OPTIONS else "未設定"
+                    final_pri = st.selectbox(
+                        "優先度",
+                        PRIORITY_OPTIONS,
+                        index=PRIORITY_OPTIONS.index(current_pri),
+                        key=f"pri_{ak}",
+                        label_visibility="collapsed",
+                    )
+                with c_mem:
+                    current_assignee = saved.get("assignee", MEMBERS[0])
+                    if current_assignee not in MEMBERS:
+                        current_assignee = MEMBERS[0]
+                    assignee = st.selectbox(
+                        "担当者",
+                        MEMBERS,
+                        index=MEMBERS.index(current_assignee),
+                        key=f"assignee_{ak}",
+                        label_visibility="collapsed",
+                    )
+    
+                priorities[ak] = {
+                    "effect":   effect,
+                    "effort":   effort,
+                    "auto":     auto_now,
+                    "priority": final_pri,
+                    "assignee": assignee,
+                }
+    
+            st.markdown("")
+            if st.button("✅ 優先度を確定する", type="primary", use_container_width=False):
+                if io_save_priorities(month_str, priorities):
+                    st.session_state.priorities = priorities
+                    st.toast("✅ 優先度を確定しました！", icon="🎯")
+                    st.rerun()
 
     # ガントチャート
     st.markdown("### 📊 統合ガントチャート")
@@ -1671,20 +1673,18 @@ def render_task_ticket(master: dict, month_str: str):
     TARGET_PRI = {"高", "中"}
     action_options = []
     for plan in all_plans:
-        m = plan.get("member","不明")
         for item in plan.get("items",[]):
             for ii, wa in enumerate(item.get("wall_actions",[])):
                 for ia, a in enumerate(wa.get("actions",[])):
                     if not a.get("text","").strip():
                         continue
-                    ak    = f"{m}__{item['kr_id']}__{ii}__{ia}"
+                    ak    = f"team__{item['kr_id']}__{ii}__{ia}"
                     saved = priorities.get(ak, {})
                     pri      = saved.get("priority","未設定") if isinstance(saved, dict) else saved
-                    assignee = saved.get("assignee", m)      if isinstance(saved, dict) else m
+                    assignee = saved.get("assignee", MEMBERS[0]) if isinstance(saved, dict) else MEMBERS[0]
                     if pri in TARGET_PRI:
                         action_options.append({
                             "label":    f"【{pri}】{assignee}｜{item['kr_label']}｜{a['text'][:30]}{'…' if len(a['text'])>30 else ''}",
-                            "member":   m,
                             "assignee": assignee,
                             "kr_label": item["kr_label"],
                             "kr_text":  item["kr_text"],
