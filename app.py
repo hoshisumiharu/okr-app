@@ -1181,7 +1181,11 @@ def render_plan(master: dict):
                             with col_ahdr:
                                 # 優先度バッジ
                                 ak  = f"{member}__{kr['id']}__{ii}__{ia}"
-                                pri = priorities.get(ak, "")
+                                saved_pri = priorities.get(ak, {})
+                                if isinstance(saved_pri, dict):
+                                    pri = saved_pri.get("priority", "")
+                                else:
+                                    pri = saved_pri  # 旧フォーマット互換
                                 pri_colors = {"高": "#E74C3C", "中": "#F39C12", "低": "#27AE60"}
                                 pri_badge  = (
                                     f'<span style="background:{pri_colors[pri]};color:#fff;'
@@ -1519,23 +1523,44 @@ def render_dashboard(master: dict):
     if not st.session_state.get("admin_auth"):
         st.markdown('<div class="g-info">管理者ログイン後に優先度を設定できます。STRATEGYタブで認証してください。</div>', unsafe_allow_html=True)
     else:
-        st.markdown('<div class="g-info">全メンバーのアクションを一覧で確認し、優先度（高・中・低）を設定してください。設定後「優先度を保存する」を押すとメンバーの画面にも反映されます。</div>', unsafe_allow_html=True)
+        st.markdown('<div class="g-info">効果（1〜5）と手間（1〜5）を入力すると優先度が自動提案されます。内容を確認して修正後、「✅ 優先度を確定する」を押してください。</div>', unsafe_allow_html=True)
+
+        # スコア→優先度変換
+        def calc_priority(effect: int, effort: int) -> str:
+            if effort == 0:
+                return "未設定"
+            score = effect / effort
+            if score >= 2.0:
+                return "高"
+            elif score >= 1.0:
+                return "中"
+            else:
+                return "低"
+
+        PRIORITY_OPTIONS = ["未設定", "高", "中", "低"]
+        PRIORITY_COLORS  = {"高": "#E74C3C", "中": "#F39C12", "低": "#27AE60", "未設定": "#95A5A6"}
 
         # 優先度データ読み込み
         if "priorities" not in st.session_state:
             st.session_state.priorities = io_get_priorities(month_str)
         priorities: dict = st.session_state.priorities
 
-        PRIORITY_OPTIONS = ["未設定", "高", "中", "低"]
-        PRIORITY_COLORS  = {"高": "#E74C3C", "中": "#F39C12", "低": "#27AE60", "未設定": "#95A5A6"}
+        # ヘッダー
+        h_cols = st.columns([3, 2.5, 1.2, 1.2, 1.5, 1.8])
+        for col, label in zip(h_cols, ["アクション", "壁", "効果\n(1〜5)", "手間\n(1〜5)", "自動提案", "優先度（確定）"]):
+            with col:
+                st.markdown(
+                    f'<div style="font-size:.72rem;font-weight:600;color:var(--color-text-secondary);'
+                    f'padding:.2rem 0;border-bottom:1.5px solid var(--color-border-secondary);">{label}</div>',
+                    unsafe_allow_html=True,
+                )
 
-        changed = False
         for plan in all_plans:
             m   = plan.get("member","不明")
             pal = mpal(m)
             st.markdown(
-                f'<div style="font-size:.82rem;font-weight:600;color:var(--color-text-primary);'
-                f'margin:.7rem 0 .3rem;border-left:3px solid {pal["main"]};padding-left:.5rem;">{m}</div>',
+                f'<div style="font-size:.78rem;font-weight:600;color:{pal["main"]};'
+                f'margin:.6rem 0 .2rem;border-left:3px solid {pal["main"]};padding-left:.5rem;">{m}</div>',
                 unsafe_allow_html=True,
             )
             for item in plan.get("items",[]):
@@ -1543,40 +1568,74 @@ def render_dashboard(master: dict):
                     for ia, a in enumerate(wa.get("actions",[])):
                         if not a.get("text","").strip():
                             continue
-                        # アクションの一意キー
                         ak = f"{m}__{item['kr_id']}__{ii}__{ia}"
-                        current = priorities.get(ak, "未設定")
+                        saved = priorities.get(ak, {})
+                        if isinstance(saved, str):
+                            # 旧フォーマット互換
+                            saved = {"effect": 0, "effort": 0, "priority": saved}
 
-                        col_action, col_wall, col_pri = st.columns([4, 3, 2])
-                        with col_action:
+                        c_act, c_wall, c_eff, c_eft, c_auto, c_pri = st.columns([3, 2.5, 1.2, 1.2, 1.5, 1.8])
+
+                        with c_act:
                             st.markdown(
-                                f'<div style="font-size:.8rem;color:var(--color-text-primary);'
-                                f'padding:.35rem 0;">{a["text"]}</div>',
+                                f'<div style="font-size:.78rem;color:var(--color-text-primary);'
+                                f'padding:.3rem 0;line-height:1.4;">{a["text"]}</div>',
                                 unsafe_allow_html=True,
                             )
-                        with col_wall:
+                        with c_wall:
                             st.markdown(
-                                f'<div style="font-size:.72rem;color:#7D6608;padding:.35rem 0;">'
-                                f'壁{ii+1}：{wa["wall_text"][:25]}{"…" if len(wa["wall_text"])>25 else ""}</div>',
+                                f'<div style="font-size:.7rem;color:#7D6608;padding:.3rem 0;">'
+                                f'壁{ii+1}：{wa["wall_text"][:20]}{"…" if len(wa["wall_text"])>20 else ""}</div>',
                                 unsafe_allow_html=True,
                             )
-                        with col_pri:
-                            new_val = st.selectbox(
+                        with c_eff:
+                            effect = st.number_input(
+                                "効果", min_value=0, max_value=5,
+                                value=int(saved.get("effect", 0)),
+                                step=1, key=f"effect_{ak}",
+                                label_visibility="collapsed",
+                            )
+                        with c_eft:
+                            effort = st.number_input(
+                                "手間", min_value=0, max_value=5,
+                                value=int(saved.get("effort", 0)),
+                                step=1, key=f"effort_{ak}",
+                                label_visibility="collapsed",
+                            )
+                        with c_auto:
+                            auto = calc_priority(effect, effort) if (effect > 0 and effort > 0) else "未設定"
+                            color = PRIORITY_COLORS.get(auto, "#95A5A6")
+                            st.markdown(
+                                f'<div style="background:{color};color:#fff;font-size:.72rem;'
+                                f'font-weight:600;padding:3px 10px;border-radius:20px;'
+                                f'text-align:center;margin-top:4px;">{auto}</div>',
+                                unsafe_allow_html=True,
+                            )
+                        with c_pri:
+                            current_pri = saved.get("priority", auto)
+                            if current_pri not in PRIORITY_OPTIONS:
+                                current_pri = auto if auto in PRIORITY_OPTIONS else "未設定"
+                            final_pri = st.selectbox(
                                 "優先度",
                                 PRIORITY_OPTIONS,
-                                index=PRIORITY_OPTIONS.index(current),
+                                index=PRIORITY_OPTIONS.index(current_pri),
                                 key=f"pri_{ak}",
                                 label_visibility="collapsed",
                             )
-                            if new_val != current:
-                                priorities[ak] = new_val
-                                changed = True
+
+                        # session_stateに反映
+                        priorities[ak] = {
+                            "effect":   effect,
+                            "effort":   effort,
+                            "auto":     auto,
+                            "priority": final_pri,
+                        }
 
         st.markdown("")
-        if st.button("💾 優先度を保存する", type="primary", use_container_width=False):
+        if st.button("✅ 優先度を確定する", type="primary", use_container_width=False):
             if io_save_priorities(month_str, priorities):
                 st.session_state.priorities = priorities
-                st.toast("✅ 優先度を保存しました！", icon="🎯")
+                st.toast("✅ 優先度を確定しました！", icon="🎯")
                 st.rerun()
 
     # ガントチャート
