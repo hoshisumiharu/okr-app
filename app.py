@@ -244,12 +244,29 @@ def _get_or_create_sheet(client, title: str):
         return ws
 
 
+@st.cache_data(ttl=120)
+def _cached_sheet_records(sheet_id: str, sheet_title: str) -> list[dict]:
+    """シートの全レコードをキャッシュ付きで取得（2分間キャッシュ）。"""
+    try:
+        client = _valid_client()
+        if not client:
+            return []
+        ws = _get_or_create_sheet(client, sheet_title)
+        return ws.get_all_records()
+    except Exception:
+        return []
+
+
+def _invalidate_sheet_cache(sheet_id: str, sheet_title: str):
+    """保存後にキャッシュを無効化する。"""
+    _cached_sheet_records.clear()
+
+
 def _sheets_get(client, sheet_title: str, key: str) -> dict | None:
     """シートからkeyに対応するJSONを取得。"""
     try:
-        ws   = _get_or_create_sheet(client, sheet_title)
-        data = ws.get_all_records()
-        for row in data:
+        rows = _cached_sheet_records(CFG["sheet_id"], sheet_title)
+        for row in rows:
             if str(row.get("key","")) == key:
                 return json.loads(row["value"])
         return None
@@ -266,8 +283,10 @@ def _sheets_set(client, sheet_title: str, key: str, data: dict) -> bool:
         for i, row in enumerate(rows, start=2):
             if str(row.get("key","")) == key:
                 ws.update_cell(i, 2, value)
+                _invalidate_sheet_cache(CFG["sheet_id"], sheet_title)
                 return True
         ws.append_row([key, value])
+        _invalidate_sheet_cache(CFG["sheet_id"], sheet_title)
         return True
     except Exception as e:
         st.error(f"Sheets保存エラー: {e}")
@@ -282,6 +301,7 @@ def _sheets_delete(client, sheet_title: str, key: str) -> bool:
         for i, row in enumerate(rows, start=2):
             if str(row.get("key","")) == key:
                 ws.delete_rows(i)
+                _invalidate_sheet_cache(CFG["sheet_id"], sheet_title)
                 return True
         return True
     except Exception:
@@ -291,8 +311,7 @@ def _sheets_delete(client, sheet_title: str, key: str) -> bool:
 def _sheets_list(client, sheet_title: str, prefix: str) -> list[dict]:
     """指定prefixで始まるkeyのJSON一覧を返す。"""
     try:
-        ws   = _get_or_create_sheet(client, sheet_title)
-        rows = ws.get_all_records()
+        rows = _cached_sheet_records(CFG["sheet_id"], sheet_title)
         result = []
         for row in rows:
             k = str(row.get("key",""))
